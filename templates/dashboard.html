@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bokashi Composter Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen p-6">
+
+<div class="max-w-7xl mx-auto mb-6">
+    <h1 class="text-3xl font-bold text-green-700">
+        🌱 Automatic Bokashi Composter
+    </h1>
+    <p class="text-gray-600">Real-time monitoring & logs</p>
+</div>
+
+<!-- SENSOR CARDS -->
+<div class="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+
+    <div class="bg-white rounded-2xl shadow p-6">
+        <h2 class="text-lg font-semibold">🌡️ Temperature</h2>
+        <p id="temp" class="text-4xl font-bold text-red-500 mt-2">-- °C</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+        <h2 class="text-lg font-semibold">💧 Humidity</h2>
+        <p id="hum" class="text-4xl font-bold text-blue-500 mt-2">-- %</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+        <h2 class="text-lg font-semibold">🧪 Ammonia</h2>
+        <p id="amm" class="text-4xl font-bold text-purple-500 mt-2">-- ppm</p>
+    </div>
+
+</div>
+
+<!-- LOG TABLE -->
+<div class="max-w-7xl mx-auto bg-white rounded-2xl shadow p-6">
+    <h2 class="text-xl font-bold mb-4">📊 Sensor Logs</h2>
+
+    <div class="overflow-x-auto">
+        <table class="min-w-full border border-gray-200">
+            <thead class="bg-green-600 text-white">
+                <tr>
+                    <th class="px-4 py-2 text-left">Timestamp</th>
+                    <th class="px-4 py-2 text-left">Temperature</th>
+                    <th class="px-4 py-2 text-left">Humidity</th>
+                    <th class="px-4 py-2 text-left">Ammonia</th>
+                </tr>
+            </thead>
+            <tbody id="logTable"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function updateSensors() {
+    const res = await fetch('/api/sensors');
+    const data = await res.json();
+
+    document.getElementById('temp').innerText = data.temperature + " °C";
+    document.getElementById('hum').innerText = data.humidity + " %";
+    document.getElementById('amm').innerText = data.ammonia + " ppm";
+}
+
+async function loadLogs() {
+    const res = await fetch('/logs');
+    const logs = await res.json();
+
+    const table = document.getElementById('logTable');
+    table.innerHTML = "";
+
+    logs.slice(-20).reverse().forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = "border-b hover:bg-gray-50";
+        tr.innerHTML = `
+            <td class="px-4 py-2">${row.Timestamp}</td>
+            <td class="px-4 py-2">${row.Temperature}</td>
+            <td class="px-4 py-2">${row.Humidity}</td>
+            <td class="px-4 py-2">${row.Ammonia}</td>
+        `;
+        table.appendChild(tr);
+    });
+}
+
+updateSensors();
+loadLogs();
+setInterval(updateSensors, 3000);
+setInterval(loadLogs, 5000);
+</script>
+
+</body>
+</html>
