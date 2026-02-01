@@ -1,0 +1,19 @@
+{
+  "thresholds": {
+    "max_temp": 36.0,
+    "min_temp": 15.0,
+    "max_humidity": 70.0,
+    "max_ammonia": 5.0
+  },
+  "notifications": {
+    "email_enabled": true,
+    "sms_enabled": false,
+    "push_enabled": true,
+    "email": "",
+    "phone": ""
+  },
+  "logging": {
+    "interval_seconds": 60,
+    "auto_backup": true
+  }
+}

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Bokashi Composter{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .nav-link {
+            transition: all 0.3s ease;
+        }
+        
+        .nav-link:hover {
+            background-color: rgba(34, 197, 94, 0.1);
+            transform: translateX(4px);
+        }
+        
+        .nav-link.active {
+            background-color: rgba(34, 197, 94, 0.15);
+            border-left: 4px solid #22c55e;
+        }
+        
+        .card-hover {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+<div class="flex min-h-screen">
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="w-64 bg-white shadow-lg fixed h-full">
+        <div class="p-6 border-b border-gray-200">
+            <h1 class="text-2xl font-bold text-green-600 flex items-center">
+                <i class="fas fa-seedling mr-2"></i>
+                Bokashi
+            </h1>
+            <p class="text-sm text-gray-500 mt-1">Compost Manager</p>
+        </div>
+        
+        <nav class="p-4">
+            <a href="{{ url_for('dashboard') }}" 
+               class="nav-link flex items-center px-4 py-3 mb-2 rounded-lg text-gray-700 {% if active_page == 'dashboard' %}active{% endif %}">
+                <i class="fas fa-home w-5 mr-3"></i>
+                Dashboard
+            </a>
+            
+            <a href="{{ url_for('batch_management') }}" 
+               class="nav-link flex items-center px-4 py-3 mb-2 rounded-lg text-gray-700 {% if active_page == 'batches' %}active{% endif %}">
+                <i class="fas fa-layer-group w-5 mr-3"></i>
+                Batch Management
+            </a>
+            
+            <a href="{{ url_for('logs_page') }}" 
+               class="nav-link flex items-center px-4 py-3 mb-2 rounded-lg text-gray-700 {% if active_page == 'logs' %}active{% endif %}">
+                <i class="fas fa-chart-line w-5 mr-3"></i>
+                Sensor Logs
+            </a>
+            
+            <a href="{{ url_for('device_control') }}" 
+               class="nav-link flex items-center px-4 py-3 mb-2 rounded-lg text-gray-700 {% if active_page == 'control' %}active{% endif %}">
+                <i class="fas fa-sliders-h w-5 mr-3"></i>
+                Device Control
+            </a>
+            
+            <a href="{{ url_for('alerts_page') }}" 
+               class="nav-link flex items-center px-4 py-3 mb-2 rounded-lg text-gray-700 {% if active_page == 'alerts' %}active{% endif %}">
+                <i class="fas fa-bell w-5 mr-3"></i>
+                Alerts
+            </a>
+            
+            <div class="border-t border-gray-200 my-4"></div>
+            
+            <a href="{{ url_for('settings') }}" 
+               class="nav-link flex items-center px-4 py-3 mb-2 rounded-lg text-gray-700 {% if active_page == 'settings' %}active{% endif %}">
+                <i class="fas fa-cog w-5 mr-3"></i>
+                Settings
+            </a>
+        </nav>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 ml-64 p-8">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

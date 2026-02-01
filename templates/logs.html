@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}Sensor Logs - Bokashi Composter{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h2 class="text-3xl font-bold text-gray-800">Sensor Logs</h2>
+    <p class="text-gray-600 mt-1">Historical sensor data and trends</p>
+</div>
+
+<!-- CURRENT READINGS SUMMARY -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-gradient-to-br from-red-50 to-red-100 rounded-2xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-lg font-semibold text-gray-700">Temperature</h3>
+            <i class="fas fa-thermometer-half text-red-500 text-2xl"></i>
+        </div>
+        <p id="currentTemp" class="text-4xl font-bold text-red-600">-- °C</p>
+        <p class="text-sm text-gray-600 mt-2">Current Reading</p>
+    </div>
+    
+    <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-lg font-semibold text-gray-700">Humidity</h3>
+            <i class="fas fa-tint text-blue-500 text-2xl"></i>
+        </div>
+        <p id="currentHum" class="text-4xl font-bold text-blue-600">-- %</p>
+        <p class="text-sm text-gray-600 mt-2">Current Reading</p>
+    </div>
+    
+    <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-lg font-semibold text-gray-700">Ammonia</h3>
+            <i class="fas fa-wind text-purple-500 text-2xl"></i>
+        </div>
+        <p id="currentAmm" class="text-4xl font-bold text-purple-600">-- ppm</p>
+        <p class="text-sm text-gray-600 mt-2">Current Reading</p>
+    </div>
+</div>
+
+<!-- LOG TABLE -->
+<div class="bg-white rounded-2xl shadow-md p-6">
+    <div class="flex items-center justify-between mb-6">
+        <h3 class="text-xl font-semibold text-gray-800">Recent Logs</h3>
+        <div class="flex gap-2">
+            <button onclick="loadLogs()" class="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg font-semibold transition">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+            <button onclick="exportLogs()" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold transition">
+                <i class="fas fa-download mr-2"></i>Export CSV
+            </button>
+        </div>
+    </div>
+    
+    <div class="overflow-x-auto">
+        <table class="min-w-full">
+            <thead class="bg-green-600 text-white">
+                <tr>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Timestamp</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Temperature (°C)</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Humidity (%)</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Ammonia (ppm)</th>
+                </tr>
+            </thead>
+            <tbody id="logTable" class="divide-y divide-gray-200">
+                <!-- Populated by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="mt-4 text-center">
+        <p id="logCount" class="text-sm text-gray-600">Loading logs...</p>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function updateCurrentReadings() {
+    const res = await fetch('/api/sensors');
+    const data = await res.json();
+    
+    document.getElementById('currentTemp').innerText = data.temperature.toFixed(1) + " °C";
+    document.getElementById('currentHum').innerText = data.humidity.toFixed(1) + " %";
+    document.getElementById('currentAmm').innerText = data.ammonia.toFixed(2) + " ppm";
+}
+
+async function loadLogs() {
+    const res = await fetch('/logs');
+    const logs = await res.json();
+    
+    const table = document.getElementById('logTable');
+    table.innerHTML = "";
+    
+    // API returns newest first; show first 50 (most recent)
+    const recentLogs = logs.slice(0, 50);
+    
+    recentLogs.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-gray-50";
+        tr.innerHTML = `
+            <td class="px-6 py-4 text-sm text-gray-800">${row.Timestamp}</td>
+            <td class="px-6 py-4 text-sm text-red-600 font-semibold">${row.Temperature}</td>
+            <td class="px-6 py-4 text-sm text-blue-600 font-semibold">${row.Humidity}</td>
+            <td class="px-6 py-4 text-sm text-purple-600 font-semibold">${row.Ammonia}</td>
+        `;
+        table.appendChild(tr);
+    });
+    
+    document.getElementById('logCount').innerText = `Showing most recent ${recentLogs.length} of ${logs.length} total logs`;
+}
+
+function exportLogs() {
+    window.location.href = '/logs/export';
+}
+
+updateCurrentReadings();
+loadLogs();
+setInterval(updateCurrentReadings, 3000);
+setInterval(loadLogs, 10000);
+</script>
+{% endblock %}

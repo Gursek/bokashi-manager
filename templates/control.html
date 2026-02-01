@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Device Control - Bokashi Composter{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h2 class="text-3xl font-bold text-gray-800">Device Control</h2>
+    <p class="text-gray-600 mt-1">Manage your bokashi composter</p>
+</div>
+
+<!-- CONTROL CARDS -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+    
+    <!-- ADD BRAN -->
+    <div class="bg-white rounded-2xl shadow-md p-6">
+        <div class="flex items-center mb-4">
+            <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mr-4">
+                <i class="fas fa-seedling text-green-600 text-xl"></i>
+            </div>
+            <div>
+                <h3 class="text-xl font-semibold text-gray-800">Add Bokashi Bran</h3>
+                <p class="text-sm text-gray-600">Dispense fermentation starter</p>
+            </div>
+        </div>
+        
+        <form method="POST" action="{{ url_for('add_bran') }}" class="space-y-4">
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Amount (grams)</label>
+                <input type="number" name="amount" value="50" min="10" max="200" step="10"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+            </div>
+            <button type="submit" 
+                    class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition">
+                <i class="fas fa-plus mr-2"></i>Dispense Bran
+            </button>
+        </form>
+        
+        <div class="mt-4 bg-green-50 rounded-lg p-3">
+            <p class="text-sm text-green-700">
+                <i class="fas fa-info-circle mr-2"></i>
+                Recommended: 20-30g per layer of food waste
+            </p>
+        </div>
+    </div>
+    
+    <!-- CAMERA SNAPSHOT -->
+    <div class="bg-white rounded-2xl shadow-md p-6">
+        <div class="flex items-center mb-4">
+            <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-4">
+                <i class="fas fa-camera text-blue-600 text-xl"></i>
+            </div>
+            <div>
+                <h3 class="text-xl font-semibold text-gray-800">Camera View</h3>
+                <p class="text-sm text-gray-600">Visual monitoring</p>
+            </div>
+        </div>
+        
+        <div class="bg-gray-100 rounded-lg aspect-video flex items-center justify-center mb-4">
+            <div class="text-center">
+                <i class="fas fa-image text-gray-400 text-4xl mb-2"></i>
+                <p class="text-gray-500 text-sm">Camera feed will appear here</p>
+            </div>
+        </div>
+        
+        <button class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition">
+            <i class="fas fa-camera mr-2"></i>Take Snapshot
+        </button>
+    </div>
+    
+</div>
+
+<!-- DEVICE STATUS -->
+<div class="bg-white rounded-2xl shadow-md p-6 mb-8">
+    <h3 class="text-xl font-semibold text-gray-800 mb-6">Device Status</h3>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="deviceStatus">
+        <div class="flex items-center">
+            <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mr-3">
+                <i class="fas fa-spinner fa-spin text-gray-400"></i>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">Loading...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MANUAL CONTROLS -->
+<div class="bg-white rounded-2xl shadow-md p-6">
+    <h3 class="text-xl font-semibold text-gray-800 mb-6">Manual Controls</h3>
+    
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <a href="{{ url_for('view_images') }}" 
+           class="block w-full bg-blue-50 hover:bg-blue-100 text-blue-700 py-4 rounded-lg font-semibold transition text-center">
+            <i class="fas fa-images text-2xl mb-2 block"></i>
+            <span>View Images</span>
+        </a>
+        <form method="POST" action="{{ url_for('test_alert') }}">
+            <button type="submit" class="w-full bg-red-50 hover:bg-red-100 text-red-700 py-4 rounded-lg font-semibold transition">
+                <i class="fas fa-bell text-2xl mb-2"></i>
+                <p>Test Alerts</p>
+            </button>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function updateDeviceStatus() {
+    const res = await fetch('/api/device-status');
+    const data = await res.json();
+    
+    document.getElementById('deviceStatus').innerHTML = `
+        <div class="flex items-center">
+            <div class="w-10 h-10 ${data.sensors.temperature === 'online' ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center mr-3">
+                <i class="fas ${data.sensors.temperature === 'online' ? 'fa-check text-green-600' : 'fa-times text-red-600'}"></i>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">Temperature Sensor</p>
+                <p class="font-semibold ${data.sensors.temperature === 'online' ? 'text-green-600' : 'text-red-600'}">${data.sensors.temperature === 'online' ? 'Online' : 'Offline'}</p>
+            </div>
+        </div>
+        <div class="flex items-center">
+            <div class="w-10 h-10 ${data.sensors.humidity === 'online' ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center mr-3">
+                <i class="fas ${data.sensors.humidity === 'online' ? 'fa-check text-green-600' : 'fa-times text-red-600'}"></i>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">Humidity Sensor</p>
+                <p class="font-semibold ${data.sensors.humidity === 'online' ? 'text-green-600' : 'text-red-600'}">${data.sensors.humidity === 'online' ? 'Online' : 'Offline'}</p>
+            </div>
+        </div>
+        <div class="flex items-center">
+            <div class="w-10 h-10 ${data.sensors.air_quality === 'online' ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center mr-3">
+                <i class="fas ${data.sensors.air_quality === 'online' ? 'fa-check text-green-600' : 'fa-times text-red-600'}"></i>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">Air Quality Sensor</p>
+                <p class="font-semibold ${data.sensors.air_quality === 'online' ? 'text-green-600' : 'text-red-600'}">${data.sensors.air_quality === 'online' ? 'Online' : 'Offline'}</p>
+            </div>
+        </div>
+        <div class="flex items-center">
+            <div class="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center mr-3">
+                <i class="fas fa-exclamation text-yellow-600"></i>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">GSM Module</p>
+                <p class="font-semibold text-yellow-600">${data.gsm_status.charAt(0).toUpperCase() + data.gsm_status.slice(1)}</p>
+            </div>
+        </div>
+    `;
+}
+updateDeviceStatus();
+setInterval(updateDeviceStatus, 5000);
+</script>
+{% endblock %}
