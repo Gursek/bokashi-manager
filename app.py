@@ -9,6 +9,8 @@ import threading
 import time
 import json
 import io
+import gspread
+from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = "secret"
@@ -331,6 +333,44 @@ def export_logs_csv():
         download_name=f"bokashi_logs_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv"
     )
 
+@app.route("/logs/sync-gdrive", methods=["POST"])
+def sync_to_gdrive():
+    SPREADSHEET_ID = "1tFVdPTekLhjVuvC36PvANdTbbM5-Y-JiR7cQ-per0Yg"
+    CREDS_FILE = "credentials.json"
+    SCOPES = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    if not os.path.exists(LOG_FILE):
+        add_alert("warning", "No sensor logs found to sync.")
+        return redirect(url_for("logs_page"))
+
+    if not os.path.exists(CREDS_FILE):
+        add_alert("danger", "Google credentials file not found.")
+        return redirect(url_for("logs_page"))
+
+    try:
+        creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SPREADSHEET_ID).sheet1
+
+        # Read CSV
+        rows = []
+        with open(LOG_FILE, "r") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                rows.append(row)
+
+        # Clear and rewrite sheet
+        sheet.clear()
+        sheet.update(rows)
+
+        add_alert("info", f"Synced {len(rows) - 1} log entries to Google Sheets.")
+    except Exception as e:
+        add_alert("danger", f"Google Sheets sync failed: {str(e)}")
+
+    return redirect(url_for("logs_page"))
 
 @app.route("/logs/clear", methods=["POST"])
 def clear_logs():
