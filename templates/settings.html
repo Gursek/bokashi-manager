@@ -51,14 +51,17 @@
                     <p class="text-xs text-gray-500 mt-1">Alert when humidity exceeds this value</p>
                 </div>
                 
+                <!-- CHANGED: was max_ammonia (ppm), now min_water_level (%) -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-2">
-                        <i class="fas fa-wind text-purple-500 mr-2"></i>
-                        Max Ammonia (ppm)
+                        <i class="fas fa-water text-blue-400 mr-2"></i>
+                        Min Water Level (%)
                     </label>
-                    <input type="number" name="max_ammonia" value="{{ settings.thresholds.max_ammonia }}" step="0.1"
+                    <input type="number" name="min_water_level"
+                           value="{{ settings.thresholds.min_water_level }}"
+                           step="1" min="0" max="100"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                    <p class="text-xs text-gray-500 mt-1">Alert when ammonia levels exceed this value</p>
+                    <p class="text-xs text-gray-500 mt-1">Alert when tank water level drops below this percentage</p>
                 </div>
             </div>
             
@@ -139,15 +142,27 @@
         
         <form method="POST" action="{{ url_for('settings') }}" class="space-y-4">
             <input type="hidden" name="section" value="logging">
+
+            <!-- Sensor Reading Interval -->
             <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-2">Logging Interval (seconds)</label>
-                <select name="interval_seconds" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                    <option value="5" {% if settings.logging.interval_seconds == 5 %}selected{% endif %}>Every 5 seconds</option>
-                    <option value="10" {% if settings.logging.interval_seconds == 10 %}selected{% endif %}>Every 10 seconds</option>
-                    <option value="30" {% if settings.logging.interval_seconds == 30 %}selected{% endif %}>Every 30 seconds</option>
-                    <option value="60" {% if settings.logging.interval_seconds == 60 %}selected{% endif %}>Every 1 minute</option>
-                    <option value="300" {% if settings.logging.interval_seconds == 300 %}selected{% endif %}>Every 5 minutes</option>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                    <i class="fas fa-clock text-blue-500 mr-2"></i>
+                    Sensor Reading &amp; Logging Interval
+                </label>
+                <select name="interval_seconds"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                    {% set current = settings.logging.interval_seconds | int %}
+                    <option value="5"   {% if current == 5   %}selected{% endif %}>Every 5 seconds</option>
+                    <option value="10"  {% if current == 10  %}selected{% endif %}>Every 10 seconds</option>
+                    <option value="30"  {% if current == 30  %}selected{% endif %}>Every 30 seconds</option>
+                    <option value="60"  {% if current == 60  %}selected{% endif %}>Every 1 minute</option>
+                    <option value="300" {% if current == 300 %}selected{% endif %}>Every 5 minutes</option>
+                    <option value="600" {% if current == 600 %}selected{% endif %}>Every 10 minutes</option>
                 </select>
+                <p class="text-xs text-gray-500 mt-1">
+                    Controls how often sensors are read <em>and</em> how often a row is written to the log.
+                    Changes take effect on the next polling cycle after saving.
+                </p>
             </div>
             
             <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
@@ -236,7 +251,7 @@
         <p class="text-gray-600 mb-4">Automated composting monitoring system</p>
         <p class="text-sm text-gray-500">
             Developed with ❤️ for sustainable living<br>
-            © 2024 Bokashi Composter Project
+            © 2026 Bokashi Composter Project
         </p>
     </div>
     
