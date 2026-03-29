@@ -27,14 +27,20 @@
         <p id="currentHum" class="text-4xl font-bold text-blue-600">-- %</p>
         <p class="text-sm text-gray-600 mt-2">Current Reading</p>
     </div>
-    
-    <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl shadow-md p-6">
+
+    <!-- Water presence only (HW-038) — no HC-SR04 level here -->
+    <div class="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-2xl shadow-md p-6">
         <div class="flex items-center justify-between mb-2">
-            <h3 class="text-lg font-semibold text-gray-700">Ammonia</h3>
-            <i class="fas fa-wind text-purple-500 text-2xl"></i>
+            <h3 class="text-lg font-semibold text-gray-700">Water Presence</h3>
+            <i class="fas fa-water text-cyan-500 text-2xl"></i>
         </div>
-        <p id="currentAmm" class="text-4xl font-bold text-purple-600">-- ppm</p>
-        <p class="text-sm text-gray-600 mt-2">Current Reading</p>
+        <div id="currentWaterStatusBadge"
+             class="inline-flex items-center gap-2 px-4 py-2 rounded-full font-bold text-lg mt-1"
+             style="background:#ccfbf1; color:#0f766e;">
+            <span id="currentWaterStatusDot" class="inline-block w-3 h-3 rounded-full bg-teal-400"></span>
+            <span id="currentWaterStatus">--</span>
+        </div>
+        <p class="text-sm text-gray-500 mt-3">HW-038 digital sensor</p>
     </div>
 </div>
 
@@ -42,15 +48,18 @@
 <div class="bg-white rounded-2xl shadow-md p-6">
     <div class="flex items-center justify-between mb-6">
         <h3 class="text-xl font-semibold text-gray-800">Recent Logs</h3>
-        <div class="flex gap-2">
-            <button onclick="loadLogs()" class="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg font-semibold transition">
+        <div class="flex gap-2 flex-wrap">
+            <button onclick="loadLogs()"
+                    class="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg font-semibold transition">
                 <i class="fas fa-sync-alt mr-2"></i>Refresh
             </button>
-            <button onclick="exportLogs()" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold transition">
+            <button onclick="exportLogs()"
+                    class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold transition">
                 <i class="fas fa-download mr-2"></i>Export CSV
             </button>
             <form method="POST" action="/logs/sync-gdrive" style="display:inline;">
-                <button type="submit" class="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 px-4 py-2 rounded-lg font-semibold transition">
+                <button type="submit"
+                        class="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 px-4 py-2 rounded-lg font-semibold transition">
                     <i class="fas fa-cloud-upload-alt mr-2"></i>Backup
                 </button>
             </form>
@@ -64,7 +73,8 @@
                     <th class="px-6 py-3 text-left text-sm font-semibold">Timestamp</th>
                     <th class="px-6 py-3 text-left text-sm font-semibold">Temperature (°C)</th>
                     <th class="px-6 py-3 text-left text-sm font-semibold">Humidity (%)</th>
-                    <th class="px-6 py-3 text-left text-sm font-semibold">Ammonia (ppm)</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Bin Capacity (%)</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Water Presence</th>
                 </tr>
             </thead>
             <tbody id="logTable" class="divide-y divide-gray-200">
@@ -83,37 +93,89 @@
 {% block scripts %}
 <script>
 async function updateCurrentReadings() {
-    const res = await fetch('/api/sensors');
-    const data = await res.json();
-    
-    document.getElementById('currentTemp').innerText = data.temperature.toFixed(1) + " °C";
-    document.getElementById('currentHum').innerText = data.humidity.toFixed(1) + " %";
-    document.getElementById('currentAmm').innerText = data.ammonia.toFixed(2) + " ppm";
+    try {
+        const res  = await fetch('/api/sensors');
+        const data = await res.json();
+
+        document.getElementById('currentTemp').innerText =
+            data.temperature !== null ? data.temperature.toFixed(1) + ' °C' : '-- °C';
+
+        document.getElementById('currentHum').innerText =
+            data.humidity !== null ? data.humidity.toFixed(1) + ' %' : '-- %';
+
+        // HW-038 water presence badge
+        const badge  = document.getElementById('currentWaterStatusBadge');
+        const dot    = document.getElementById('currentWaterStatusDot');
+        const label  = document.getElementById('currentWaterStatus');
+        if (data.water_status === 'wet') {
+            label.innerText        = 'Wet';
+            badge.style.background = '#ccfbf1';
+            badge.style.color      = '#0f766e';
+            dot.style.background   = '#14b8a6';
+        } else if (data.water_status === 'dry') {
+            label.innerText        = 'Dry';
+            badge.style.background = '#fef9c3';
+            badge.style.color      = '#854d0e';
+            dot.style.background   = '#eab308';
+        } else {
+            label.innerText        = '--';
+            badge.style.background = '#f3f4f6';
+            badge.style.color      = '#6b7280';
+            dot.style.background   = '#9ca3af';
+        }
+    } catch (e) {
+        console.error('Sensor fetch failed:', e);
+    }
 }
 
 async function loadLogs() {
-    const res = await fetch('/logs');
-    const logs = await res.json();
-    
-    const table = document.getElementById('logTable');
-    table.innerHTML = "";
-    
-    // API returns newest first; show first 50 (most recent)
-    const recentLogs = logs.slice(0, 50);
-    
-    recentLogs.forEach(row => {
-        const tr = document.createElement('tr');
-        tr.className = "hover:bg-gray-50";
-        tr.innerHTML = `
-            <td class="px-6 py-4 text-sm text-gray-800">${row.Timestamp}</td>
-            <td class="px-6 py-4 text-sm text-red-600 font-semibold">${row.Temperature}</td>
-            <td class="px-6 py-4 text-sm text-blue-600 font-semibold">${row.Humidity}</td>
-            <td class="px-6 py-4 text-sm text-purple-600 font-semibold">${row.Ammonia}</td>
-        `;
-        table.appendChild(tr);
-    });
-    
-    document.getElementById('logCount').innerText = `Showing most recent ${recentLogs.length} of ${logs.length} total logs`;
+    try {
+        const res  = await fetch('/logs');
+        const logs = await res.json();
+
+        const table     = document.getElementById('logTable');
+        table.innerHTML = '';
+
+        const recentLogs = logs.slice(0, 50);
+
+        recentLogs.forEach(row => {
+            // Water presence badge styling
+            const presence = (row.Water_Status || '').toLowerCase();
+            const badgeStyle = presence === 'wet'
+                ? 'background:#cffafe; color:#0e7490; border-radius:6px; padding:2px 8px;'
+                : presence === 'dry'
+                    ? 'background:#fef9c3; color:#b45309; border-radius:6px; padding:2px 8px;'
+                    : '';
+            const presenceLabel = presence
+                ? presence.charAt(0).toUpperCase() + presence.slice(1)
+                : '--';
+
+            // Bin capacity: colour it purple, append %
+            const capRaw = row.Bin_Capacity_Pct;
+            const capDisplay = capRaw !== undefined && capRaw !== ''
+                ? parseFloat(capRaw).toFixed(1) + ' %'
+                : '--';
+
+            const tr     = document.createElement('tr');
+            tr.className = 'hover:bg-gray-50';
+            tr.innerHTML = `
+                <td class="px-6 py-4 text-sm text-gray-800">${row.Timestamp || '--'}</td>
+                <td class="px-6 py-4 text-sm text-red-600 font-semibold">${row.Temperature || '--'}</td>
+                <td class="px-6 py-4 text-sm text-blue-600 font-semibold">${row.Humidity || '--'}</td>
+                <td class="px-6 py-4 text-sm text-purple-600 font-semibold">${capDisplay}</td>
+                <td class="px-6 py-4 text-sm font-semibold">
+                    <span style="${badgeStyle}">${presenceLabel}</span>
+                </td>
+            `;
+            table.appendChild(tr);
+        });
+
+        document.getElementById('logCount').innerText =
+            `Showing most recent ${recentLogs.length} of ${logs.length} total logs`;
+
+    } catch (e) {
+        console.error('Log fetch failed:', e);
+    }
 }
 
 function exportLogs() {

@@ -108,49 +108,58 @@
 
 {% block scripts %}
 <script>
-async function updateDeviceStatus() {
-    const res = await fetch('/api/device-status');
-    const data = await res.json();
-    
-    document.getElementById('deviceStatus').innerHTML = `
+function statusCard(label, icon, statusKey, statusValue) {
+    const online = statusValue === 'online';
+    const colorClass = online ? 'bg-green-100' : 'bg-red-100';
+    const iconClass  = online ? 'fa-check text-green-600' : 'fa-times text-red-600';
+    const textClass  = online ? 'text-green-600' : 'text-red-600';
+    const statusText = online ? 'Online' : 'Offline';
+    return `
         <div class="flex items-center">
-            <div class="w-10 h-10 ${data.sensors.temperature === 'online' ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center mr-3">
-                <i class="fas ${data.sensors.temperature === 'online' ? 'fa-check text-green-600' : 'fa-times text-red-600'}"></i>
+            <div class="w-10 h-10 ${colorClass} rounded-full flex items-center justify-center mr-3">
+                <i class="fas ${iconClass}"></i>
             </div>
             <div>
-                <p class="text-sm text-gray-600">Temperature Sensor</p>
-                <p class="font-semibold ${data.sensors.temperature === 'online' ? 'text-green-600' : 'text-red-600'}">${data.sensors.temperature === 'online' ? 'Online' : 'Offline'}</p>
+                <p class="text-sm text-gray-600">${label}</p>
+                <p class="font-semibold ${textClass}">${statusText}</p>
             </div>
-        </div>
-        <div class="flex items-center">
-            <div class="w-10 h-10 ${data.sensors.humidity === 'online' ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center mr-3">
-                <i class="fas ${data.sensors.humidity === 'online' ? 'fa-check text-green-600' : 'fa-times text-red-600'}"></i>
-            </div>
-            <div>
-                <p class="text-sm text-gray-600">Humidity Sensor</p>
-                <p class="font-semibold ${data.sensors.humidity === 'online' ? 'text-green-600' : 'text-red-600'}">${data.sensors.humidity === 'online' ? 'Online' : 'Offline'}</p>
-            </div>
-        </div>
-        <div class="flex items-center">
-            <div class="w-10 h-10 ${data.sensors.air_quality === 'online' ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center mr-3">
-                <i class="fas ${data.sensors.air_quality === 'online' ? 'fa-check text-green-600' : 'fa-times text-red-600'}"></i>
-            </div>
-            <div>
-                <p class="text-sm text-gray-600">Air Quality Sensor</p>
-                <p class="font-semibold ${data.sensors.air_quality === 'online' ? 'text-green-600' : 'text-red-600'}">${data.sensors.air_quality === 'online' ? 'Online' : 'Offline'}</p>
-            </div>
-        </div>
+        </div>`;
+}
+
+function gsmCard(status) {
+    const label = status.charAt(0).toUpperCase() + status.slice(1);
+    return `
         <div class="flex items-center">
             <div class="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center mr-3">
                 <i class="fas fa-exclamation text-yellow-600"></i>
             </div>
             <div>
                 <p class="text-sm text-gray-600">GSM Module</p>
-                <p class="font-semibold text-yellow-600">${data.gsm_status.charAt(0).toUpperCase() + data.gsm_status.slice(1)}</p>
+                <p class="font-semibold text-yellow-600">${label}</p>
             </div>
-        </div>
-    `;
+        </div>`;
 }
+
+async function updateDeviceStatus() {
+    try {
+        const res  = await fetch('/api/device-status');
+        const data = await res.json();
+
+        document.getElementById('deviceStatus').innerHTML =
+            // DHT22 — temperature
+            statusCard('DHT22 · Temperature',  'fa-thermometer-half', 'temperature', data.sensors.temperature) +
+            // DHT22 — humidity (same physical chip, separate status key)
+            statusCard('DHT22 · Humidity',     'fa-tint',             'humidity',    data.sensors.humidity) +
+            // HC-SR04 + HW-038 — both water sensors share the 'water' key
+            statusCard('Water Sensors (HC-SR04 / HW-038)', 'fa-water', 'water', data.sensors.water) +
+            // GSM module
+            gsmCard(data.gsm_status);
+
+    } catch (e) {
+        console.error('Device status fetch failed:', e);
+    }
+}
+
 updateDeviceStatus();
 setInterval(updateDeviceStatus, 5000);
 </script>

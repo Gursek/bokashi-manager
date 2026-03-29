@@ -33,15 +33,16 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- CHANGED: was Total Weight (kg), now Bin Capacity (%) -->
     <div class="bg-white rounded-2xl shadow-md p-6 card-hover">
         <div class="flex items-center justify-between">
             <div>
-                <p class="text-sm text-gray-500 mb-1">Total Weight</p>
-                <p id="totalWeight" class="text-3xl font-bold text-purple-600">0<span class="text-lg">kg</span></p>
+                <p class="text-sm text-gray-500 mb-1">Bin Capacity</p>
+                <p id="binCapacity" class="text-3xl font-bold text-purple-600">--<span class="text-lg">%</span></p>
             </div>
             <div class="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                <i class="fas fa-weight text-purple-600 text-xl"></i>
+                <i class="fas fa-trash-alt text-purple-600 text-xl"></i>
             </div>
         </div>
     </div>
@@ -65,43 +66,78 @@
         <h3 class="text-xl font-semibold text-gray-800">Current Conditions</h3>
         <span class="text-sm text-gray-500">Updated: <span id="lastUpdate">--</span></span>
     </div>
-    
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+    <!-- Row 1: Temperature + Humidity (DHT22) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <!-- Temperature -->
         <div class="bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-6">
             <div class="flex items-center mb-3">
                 <i class="fas fa-thermometer-half text-red-500 text-2xl mr-3"></i>
                 <h4 class="text-lg font-semibold text-gray-700">Temperature</h4>
             </div>
             <p id="temp" class="text-4xl font-bold text-red-600">-- °C</p>
-            <div class="mt-3 flex items-center text-sm text-gray-600">
-                <i class="fas fa-info-circle mr-2"></i>
-                Optimal: 20-25°C
+            <div class="mt-3">
+                <div class="w-full bg-red-200 rounded-full h-2 mb-1">
+                    <div id="tempBar" class="bg-red-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex items-center text-sm text-gray-600">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    Optimal: 20–25 °C
+                </div>
             </div>
         </div>
-        
+
+        <!-- Humidity -->
         <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6">
             <div class="flex items-center mb-3">
                 <i class="fas fa-tint text-blue-500 text-2xl mr-3"></i>
                 <h4 class="text-lg font-semibold text-gray-700">Humidity</h4>
             </div>
             <p id="hum" class="text-4xl font-bold text-blue-600">-- %</p>
-            <div class="mt-3 flex items-center text-sm text-gray-600">
-                <i class="fas fa-info-circle mr-2"></i>
-                Optimal: 40-60%
+            <div class="mt-3">
+                <div class="w-full bg-blue-200 rounded-full h-2 mb-1">
+                    <div id="humBar" class="bg-blue-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex items-center text-sm text-gray-600">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    Optimal: 40–60 %
+                </div>
             </div>
         </div>
-        
-        <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-6">
-            <div class="flex items-center mb-3">
-                <i class="fas fa-wind text-purple-500 text-2xl mr-3"></i>
-                <h4 class="text-lg font-semibold text-gray-700">Ammonia</h4>
+    </div>
+
+    <!-- Row 2: Water card — HW-038 presence only (no HC-SR04 level) -->
+    <div class="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-xl p-6">
+        <div class="flex items-center mb-4">
+            <i class="fas fa-water text-cyan-500 text-2xl mr-3"></i>
+            <h4 class="text-lg font-semibold text-gray-700">Water Presence</h4>
+        </div>
+
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <!-- Badge -->
+            <div>
+                <p class="text-xs text-gray-500 uppercase tracking-wide mb-2">Detection Status</p>
+                <div id="waterStatusBadge"
+                     class="inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold text-lg"
+                     style="background:#ccfbf1; color:#0f766e;">
+                    <span id="waterStatusDot" class="inline-block w-3 h-3 rounded-full bg-teal-400"></span>
+                    <span id="waterStatus">--</span>
+                </div>
             </div>
-            <p id="amm" class="text-4xl font-bold text-purple-600">-- ppm</p>
-            <div class="mt-3 flex items-center text-sm text-gray-600">
-                <i class="fas fa-info-circle mr-2"></i>
-                Safe: < 5 ppm
+
+            <!-- Sensor label -->
+            <div class="text-right">
+                <p class="text-sm text-gray-500">HW-038 digital sensor</p>
+                <p class="text-xs text-gray-400 mt-1">Detects liquid presence at the sensor tip</p>
             </div>
         </div>
+    </div>
+
+    <!-- Sensor error banner (hidden by default) -->
+    <div id="sensorError"
+         class="hidden mt-4 flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+        <i class="fas fa-exclamation-triangle"></i>
+        <span id="sensorErrorMsg"></span>
     </div>
 </div>
 
@@ -126,7 +162,7 @@
             </div>
             <div>
                 <h4 class="font-semibold text-gray-800 mb-1">Monitor</h4>
-                <p class="text-sm text-gray-600">Check temperature and ammonia levels regularly for optimal fermentation.</p>
+                <p class="text-sm text-gray-600">Check temperature, humidity, and bin capacity regularly for optimal fermentation.</p>
             </div>
         </div>
         
@@ -168,10 +204,11 @@
                 Components
             </h4>
             <ul class="text-sm text-gray-600 space-y-1">
-                <li>• Raspberry Pi Controller</li>
-                <li>• MQ-135 Gas Sensor</li>
-                <li>• DHT22 Sensor</li>
-                <li>• Web & SMS Alerts</li>
+                <li>• Raspberry Pi 4 Controller</li>
+                <li>• DHT22 Temperature &amp; Humidity Sensor</li>
+                <li>• HC-SR04 Ultrasonic Bin-Level Sensor</li>
+                <li>• HW-038 Digital Water Presence Sensor</li>
+                <li>• Web &amp; SMS Alerts</li>
             </ul>
         </div>
 
@@ -183,8 +220,8 @@
             </h4>
             <p class="text-sm text-gray-600">
                 To improve food waste management through real-time 
-                temperature, humidity, and ammonia monitoring while 
-                reducing odor and fermentation errors.
+                temperature, humidity, bin capacity, and water presence monitoring while 
+                reducing fermentation errors and ensuring proper moisture control.
             </p>
         </div>
 
@@ -236,23 +273,84 @@
 {% block scripts %}
 <script>
 async function updateDashboard() {
-    // Update sensor data
-    const sensorRes = await fetch('/api/sensors');
-    const sensorData = await sensorRes.json();
-    
-    document.getElementById('temp').innerText = sensorData.temperature.toFixed(1) + " °C";
-    document.getElementById('hum').innerText = sensorData.humidity.toFixed(1) + " %";
-    document.getElementById('amm').innerText = sensorData.ammonia.toFixed(2) + " ppm";
-    document.getElementById('lastUpdate').innerText = sensorData.last_updated || '--';
-    
-    // Update stats
-    const statsRes = await fetch('/api/stats');
-    const stats = await statsRes.json();
-    
-    document.getElementById('activeBatches').innerText = stats.active_batches;
-    document.getElementById('completedBatches').innerText = stats.completed_batches;
-    document.getElementById('totalWeight').innerHTML = stats.total_weight.toFixed(1) + '<span class="text-lg">kg</span>';
-    document.getElementById('unreadAlerts').innerText = stats.unread_alerts;
+    try {
+        // ── Sensor data ──────────────────────────────────────────────
+        const sensorRes  = await fetch('/api/sensors');
+        const sensorData = await sensorRes.json();
+
+        // Temperature
+        const temp = sensorData.temperature;
+        document.getElementById('temp').innerText =
+            temp !== null ? temp.toFixed(1) + ' °C' : '-- °C';
+        document.getElementById('tempBar').style.width =
+            temp !== null ? Math.min(Math.max(temp / 50 * 100, 0), 100) + '%' : '0%';
+
+        // Humidity
+        const hum = sensorData.humidity;
+        document.getElementById('hum').innerText =
+            hum !== null ? hum.toFixed(1) + ' %' : '-- %';
+        document.getElementById('humBar').style.width =
+            hum !== null ? Math.min(Math.max(hum, 0), 100) + '%' : '0%';
+
+        // Water presence (HW-038) — "wet" or "dry"
+        const status = sensorData.water_status;
+        const badge  = document.getElementById('waterStatusBadge');
+        const dot    = document.getElementById('waterStatusDot');
+        const label  = document.getElementById('waterStatus');
+        if (status === 'wet') {
+            label.innerText        = 'Wet';
+            badge.style.background = '#ccfbf1';
+            badge.style.color      = '#0f766e';
+            dot.style.background   = '#14b8a6';
+        } else if (status === 'dry') {
+            label.innerText        = 'Dry';
+            badge.style.background = '#fef9c3';
+            badge.style.color      = '#854d0e';
+            dot.style.background   = '#eab308';
+        } else {
+            label.innerText        = '--';
+            badge.style.background = '#f3f4f6';
+            badge.style.color      = '#6b7280';
+            dot.style.background   = '#9ca3af';
+        }
+
+        // Last updated timestamp
+        document.getElementById('lastUpdate').innerText =
+            sensorData.last_updated || '--';
+
+        // Sensor error banner
+        const errBanner = document.getElementById('sensorError');
+        const errMsg    = document.getElementById('sensorErrorMsg');
+        if (sensorData.sensor_error) {
+            errBanner.classList.remove('hidden');
+            errMsg.innerText = 'Sensor error: ' + sensorData.sensor_error;
+        } else {
+            errBanner.classList.add('hidden');
+        }
+
+    } catch (e) {
+        console.error('Sensor fetch failed:', e);
+    }
+
+    try {
+        // ── Stats ────────────────────────────────────────────────────
+        const statsRes = await fetch('/api/stats');
+        const stats    = await statsRes.json();
+
+        document.getElementById('activeBatches').innerText    = stats.active_batches;
+        document.getElementById('completedBatches').innerText = stats.completed_batches;
+        document.getElementById('unreadAlerts').innerText     = stats.unread_alerts;
+
+        // Bin capacity stat card
+        const cap = stats.bin_capacity;
+        document.getElementById('binCapacity').innerHTML =
+            cap !== null && cap !== undefined
+                ? cap.toFixed(1) + '<span class="text-lg">%</span>'
+                : '--<span class="text-lg">%</span>';
+
+    } catch (e) {
+        console.error('Stats fetch failed:', e);
+    }
 }
 
 updateDashboard();
