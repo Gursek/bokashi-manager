@@ -18,7 +18,7 @@
         <p id="currentTemp" class="text-4xl font-bold text-red-600">-- °C</p>
         <p class="text-sm text-gray-600 mt-2">Current Reading</p>
     </div>
-    
+
     <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl shadow-md p-6">
         <div class="flex items-center justify-between mb-2">
             <h3 class="text-lg font-semibold text-gray-700">Humidity</h3>
@@ -28,7 +28,6 @@
         <p class="text-sm text-gray-600 mt-2">Current Reading</p>
     </div>
 
-    <!-- Water presence only (HW-038) — no HC-SR04 level here -->
     <div class="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-2xl shadow-md p-6">
         <div class="flex items-center justify-between mb-2">
             <h3 class="text-lg font-semibold text-gray-700">Water Presence</h3>
@@ -57,15 +56,16 @@
                     class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold transition">
                 <i class="fas fa-download mr-2"></i>Export CSV
             </button>
-            <form method="POST" action="/logs/sync-gdrive" style="display:inline;">
+            <form method="POST" action="/logs/clear" style="display:inline;">
                 <button type="submit"
-                        class="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 px-4 py-2 rounded-lg font-semibold transition">
-                    <i class="fas fa-cloud-upload-alt mr-2"></i>Backup
+                        class="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg font-semibold transition"
+                        onclick="return confirm('Clear all logs?')">
+                    <i class="fas fa-trash mr-2"></i>Clear Logs
                 </button>
             </form>
         </div>
     </div>
-    
+
     <div class="overflow-x-auto">
         <table class="min-w-full">
             <thead class="bg-green-600 text-white">
@@ -78,16 +78,14 @@
                 </tr>
             </thead>
             <tbody id="logTable" class="divide-y divide-gray-200">
-                <!-- Populated by JavaScript -->
             </tbody>
         </table>
     </div>
-    
+
     <div class="mt-4 text-center">
         <p id="logCount" class="text-sm text-gray-600">Loading logs...</p>
     </div>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
@@ -99,14 +97,12 @@ async function updateCurrentReadings() {
 
         document.getElementById('currentTemp').innerText =
             data.temperature !== null ? data.temperature.toFixed(1) + ' °C' : '-- °C';
-
         document.getElementById('currentHum').innerText =
             data.humidity !== null ? data.humidity.toFixed(1) + ' %' : '-- %';
 
-        // HW-038 water presence badge
-        const badge  = document.getElementById('currentWaterStatusBadge');
-        const dot    = document.getElementById('currentWaterStatusDot');
-        const label  = document.getElementById('currentWaterStatus');
+        const badge = document.getElementById('currentWaterStatusBadge');
+        const dot   = document.getElementById('currentWaterStatusDot');
+        const label = document.getElementById('currentWaterStatus');
         if (data.water_status === 'wet') {
             label.innerText        = 'Wet';
             badge.style.background = '#ccfbf1';
@@ -133,14 +129,13 @@ async function loadLogs() {
         const res  = await fetch('/logs');
         const logs = await res.json();
 
-        const table     = document.getElementById('logTable');
-        table.innerHTML = '';
-
+        const table      = document.getElementById('logTable');
+        table.innerHTML  = '';
         const recentLogs = logs.slice(0, 50);
 
         recentLogs.forEach(row => {
-            // Water presence badge styling
-            const presence = (row.Water_Status || '').toLowerCase();
+            // Supabase returns snake_case keys: timestamp, temperature, humidity, bin_capacity, water_status
+            const presence = (row.water_status || '').toLowerCase();
             const badgeStyle = presence === 'wet'
                 ? 'background:#cffafe; color:#0e7490; border-radius:6px; padding:2px 8px;'
                 : presence === 'dry'
@@ -150,18 +145,21 @@ async function loadLogs() {
                 ? presence.charAt(0).toUpperCase() + presence.slice(1)
                 : '--';
 
-            // Bin capacity: colour it purple, append %
-            const capRaw = row.Bin_Capacity_Pct;
-            const capDisplay = capRaw !== undefined && capRaw !== ''
-                ? parseFloat(capRaw).toFixed(1) + ' %'
+            const cap = row.bin_capacity;
+            const capDisplay = cap !== null && cap !== undefined
+                ? parseFloat(cap).toFixed(1) + ' %' : '--';
+
+            // Format timestamp (Supabase returns ISO string)
+            const ts = row.timestamp
+                ? new Date(row.timestamp).toLocaleString()
                 : '--';
 
             const tr     = document.createElement('tr');
             tr.className = 'hover:bg-gray-50';
             tr.innerHTML = `
-                <td class="px-6 py-4 text-sm text-gray-800">${row.Timestamp || '--'}</td>
-                <td class="px-6 py-4 text-sm text-red-600 font-semibold">${row.Temperature || '--'}</td>
-                <td class="px-6 py-4 text-sm text-blue-600 font-semibold">${row.Humidity || '--'}</td>
+                <td class="px-6 py-4 text-sm text-gray-800">${ts}</td>
+                <td class="px-6 py-4 text-sm text-red-600 font-semibold">${row.temperature ?? '--'}</td>
+                <td class="px-6 py-4 text-sm text-blue-600 font-semibold">${row.humidity ?? '--'}</td>
                 <td class="px-6 py-4 text-sm text-purple-600 font-semibold">${capDisplay}</td>
                 <td class="px-6 py-4 text-sm font-semibold">
                     <span style="${badgeStyle}">${presenceLabel}</span>
@@ -171,8 +169,7 @@ async function loadLogs() {
         });
 
         document.getElementById('logCount').innerText =
-            `Showing most recent ${recentLogs.length} of ${logs.length} total logs`;
-
+            `Showing most recent ${recentLogs.length} of ${logs.length} entries`;
     } catch (e) {
         console.error('Log fetch failed:', e);
     }
