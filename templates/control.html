@@ -10,7 +10,7 @@
 
 <!-- CONTROL CARDS -->
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-    
+
     <!-- ADD BRAN -->
     <div class="bg-white rounded-2xl shadow-md p-6">
         <div class="flex items-center mb-4">
@@ -22,28 +22,26 @@
                 <p class="text-sm text-gray-600">Dispense fermentation starter</p>
             </div>
         </div>
-        
         <form method="POST" action="{{ url_for('add_bran') }}" class="space-y-4">
             <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Amount (grams)</label>
-                <input type="number" name="amount" value="50" min="10" max="200" step="10"
+                <input type="number" name="amount" value="30" min="10" max="200" step="10"
                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent">
             </div>
-            <button type="submit" 
+            <button type="submit"
                     class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition">
                 <i class="fas fa-plus mr-2"></i>Dispense Bran
             </button>
         </form>
-        
         <div class="mt-4 bg-green-50 rounded-lg p-3">
             <p class="text-sm text-green-700">
                 <i class="fas fa-info-circle mr-2"></i>
-                Recommended: 20-30g per layer of food waste
+                Recommended: 20–30g per layer of food waste
             </p>
         </div>
     </div>
-    
-    <!-- CAMERA SNAPSHOT -->
+
+    <!-- CAMERA -->
     <div class="bg-white rounded-2xl shadow-md p-6">
         <div class="flex items-center mb-4">
             <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-4">
@@ -51,36 +49,51 @@
             </div>
             <div>
                 <h3 class="text-xl font-semibold text-gray-800">Camera View</h3>
-                <p class="text-sm text-gray-600">Visual monitoring</p>
+                <p class="text-sm text-gray-600">Live feed · Pi Camera</p>
             </div>
         </div>
-        
-        <div class="bg-gray-100 rounded-lg aspect-video flex items-center justify-center mb-4">
-            <div class="text-center">
-                <i class="fas fa-image text-gray-400 text-4xl mb-2"></i>
-                <p class="text-gray-500 text-sm">Camera feed will appear here</p>
+
+        <!-- Live stream -->
+        <div class="bg-gray-900 rounded-xl overflow-hidden aspect-video flex items-center justify-center mb-4 relative">
+            <img id="cameraFeed"
+                 src="/camera/stream"
+                 alt="Live camera feed"
+                 class="w-full h-full object-cover"
+                 onerror="showCameraError()">
+            <div id="cameraError" class="hidden absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+                <i class="fas fa-video-slash text-gray-500 text-4xl mb-3"></i>
+                <p class="text-gray-400 text-sm">Camera unavailable</p>
+                <p class="text-gray-500 text-xs mt-1">Check that the camera is connected and enabled</p>
             </div>
         </div>
-        
-        <button class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition">
-            <i class="fas fa-camera mr-2"></i>Take Snapshot
-        </button>
+
+        <!-- Snapshot button -->
+        <form method="POST" action="{{ url_for('camera_snapshot') }}">
+            <button type="submit"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition">
+                <i class="fas fa-camera mr-2"></i>Take Snapshot
+            </button>
+        </form>
+
+        <p class="text-xs text-gray-400 mt-3 text-center">
+            Snapshots are saved to the Images gallery and logged in Supabase.
+        </p>
     </div>
-    
+
 </div>
 
 <!-- DEVICE STATUS -->
 <div class="bg-white rounded-2xl shadow-md p-6 mb-8">
-    <h3 class="text-xl font-semibold text-gray-800 mb-6">Device Status</h3>
-    
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="deviceStatus">
-        <div class="flex items-center">
-            <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mr-3">
-                <i class="fas fa-spinner fa-spin text-gray-400"></i>
-            </div>
-            <div>
-                <p class="text-sm text-gray-600">Loading...</p>
-            </div>
+    <div class="flex items-center justify-between mb-6">
+        <h3 class="text-xl font-semibold text-gray-800">Device Status</h3>
+        <span class="text-xs text-gray-400">Auto-refreshes every 5 s</span>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6" id="deviceStatus">
+        <!-- Populated by JS -->
+        <div class="flex items-center col-span-4">
+            <i class="fas fa-spinner fa-spin text-gray-400 mr-3"></i>
+            <p class="text-sm text-gray-500">Loading sensor status…</p>
         </div>
     </div>
 </div>
@@ -88,54 +101,59 @@
 <!-- MANUAL CONTROLS -->
 <div class="bg-white rounded-2xl shadow-md p-6">
     <h3 class="text-xl font-semibold text-gray-800 mb-6">Manual Controls</h3>
-    
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <a href="{{ url_for('view_images') }}" 
+        <a href="{{ url_for('view_images') }}"
            class="block w-full bg-blue-50 hover:bg-blue-100 text-blue-700 py-4 rounded-lg font-semibold transition text-center">
             <i class="fas fa-images text-2xl mb-2 block"></i>
-            <span>View Images</span>
+            View Images
         </a>
         <form method="POST" action="{{ url_for('test_alert') }}">
-            <button type="submit" class="w-full bg-red-50 hover:bg-red-100 text-red-700 py-4 rounded-lg font-semibold transition">
-                <i class="fas fa-bell text-2xl mb-2"></i>
-                <p>Test Alerts</p>
+            <button type="submit"
+                    class="w-full bg-red-50 hover:bg-red-100 text-red-700 py-4 rounded-lg font-semibold transition">
+                <i class="fas fa-bell text-2xl mb-2 block"></i>
+                Test Alerts
             </button>
         </form>
     </div>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-function statusCard(label, icon, statusKey, statusValue) {
-    const online = statusValue === 'online';
-    const colorClass = online ? 'bg-green-100' : 'bg-red-100';
-    const iconClass  = online ? 'fa-check text-green-600' : 'fa-times text-red-600';
-    const textClass  = online ? 'text-green-600' : 'text-red-600';
-    const statusText = online ? 'Online' : 'Offline';
-    return `
-        <div class="flex items-center">
-            <div class="w-10 h-10 ${colorClass} rounded-full flex items-center justify-center mr-3">
-                <i class="fas ${iconClass}"></i>
-            </div>
-            <div>
-                <p class="text-sm text-gray-600">${label}</p>
-                <p class="font-semibold ${textClass}">${statusText}</p>
-            </div>
-        </div>`;
+function showCameraError() {
+    document.getElementById('cameraFeed').classList.add('hidden');
+    document.getElementById('cameraError').classList.remove('hidden');
 }
 
-function gsmCard(status) {
-    const label = status.charAt(0).toUpperCase() + status.slice(1);
+// Sensor label + icon map
+const SENSOR_META = {
+    dht22:  { label: 'DHT22 · Temp & Humidity', icon: 'fa-thermometer-half' },
+    hcsr04: { label: 'HC-SR04 · Bin Level',     icon: 'fa-ruler-vertical'   },
+    hw038:  { label: 'HW-038 · Water Presence',  icon: 'fa-water'            },
+    camera: { label: 'Pi Camera',                icon: 'fa-camera'           }
+};
+
+function statusCard(key, status) {
+    const meta    = SENSOR_META[key] || { label: key, icon: 'fa-microchip' };
+    const online  = status === 'online';
+    const unknown = status === 'unknown';
+
+    const bgColor   = online  ? 'bg-green-100' : unknown ? 'bg-gray-100'  : 'bg-red-100';
+    const iconColor = online  ? 'text-green-600': unknown ? 'text-gray-400': 'text-red-600';
+    const icon      = online  ? 'fa-check'      : unknown ? 'fa-question'  : 'fa-times';
+    const textColor = online  ? 'text-green-600': unknown ? 'text-gray-500': 'text-red-600';
+    const label     = online  ? 'Online'         : unknown ? 'Unknown'      : 'Offline';
+
     return `
         <div class="flex items-center">
-            <div class="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center mr-3">
-                <i class="fas fa-exclamation text-yellow-600"></i>
+            <div class="w-10 h-10 ${bgColor} rounded-full flex items-center justify-center mr-3 flex-shrink-0">
+                <i class="fas ${icon} ${iconColor}"></i>
             </div>
             <div>
-                <p class="text-sm text-gray-600">GSM Module</p>
-                <p class="font-semibold text-yellow-600">${label}</p>
+                <p class="text-sm text-gray-600">${meta.label}</p>
+                <p class="font-semibold ${textColor} flex items-center gap-1">
+                    <i class="fas ${meta.icon} text-xs opacity-60"></i> ${label}
+                </p>
             </div>
         </div>`;
 }
@@ -144,17 +162,13 @@ async function updateDeviceStatus() {
     try {
         const res  = await fetch('/api/device-status');
         const data = await res.json();
+        const sensors = data.sensors;
 
         document.getElementById('deviceStatus').innerHTML =
-            // DHT22 — temperature
-            statusCard('DHT22 · Temperature',  'fa-thermometer-half', 'temperature', data.sensors.temperature) +
-            // DHT22 — humidity (same physical chip, separate status key)
-            statusCard('DHT22 · Humidity',     'fa-tint',             'humidity',    data.sensors.humidity) +
-            // HC-SR04 + HW-038 — both water sensors share the 'water' key
-            statusCard('Water Sensors (HC-SR04 / HW-038)', 'fa-water', 'water', data.sensors.water) +
-            // GSM module
-            gsmCard(data.gsm_status);
-
+            statusCard('dht22',  sensors.dht22)  +
+            statusCard('hcsr04', sensors.hcsr04) +
+            statusCard('hw038',  sensors.hw038)  +
+            statusCard('camera', sensors.camera);
     } catch (e) {
         console.error('Device status fetch failed:', e);
     }

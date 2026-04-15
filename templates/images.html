@@ -8,7 +8,7 @@
         <h2 class="text-3xl font-bold text-gray-800">Captured Images</h2>
         <p class="text-gray-600 mt-1">Composter snapshots and uploads</p>
     </div>
-    <a href="{{ url_for('device_control') }}" 
+    <a href="{{ url_for('device_control') }}"
        class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-semibold transition inline-flex items-center">
         <i class="fas fa-arrow-left mr-2"></i>Back to Control
     </a>
@@ -17,36 +17,99 @@
 <!-- UPLOAD -->
 <div class="bg-white rounded-2xl shadow-md p-6 mb-8">
     <h3 class="text-xl font-semibold text-gray-800 mb-4">
-        <i class="fas fa-upload text-green-600 mr-2"></i>Add Image
+        <i class="fas fa-upload text-green-600 mr-2"></i>Upload Image
     </h3>
-    <form method="POST" action="{{ url_for('upload_image') }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-4">
+    <form method="POST" action="{{ url_for('upload_image') }}" enctype="multipart/form-data"
+          class="flex flex-wrap items-end gap-4">
         <div class="flex-1 min-w-[200px]">
-            <label class="block text-sm font-semibold text-gray-700 mb-2">Choose image (PNG, JPG, GIF, WebP)</label>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                Choose image (PNG, JPG, GIF, WebP)
+            </label>
             <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp" required
-                   class="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-green-50 file:text-green-700 file:font-semibold file:cursor-pointer hover:file:bg-green-100">
+                   class="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg
+                          file:border-0 file:bg-green-50 file:text-green-700 file:font-semibold
+                          file:cursor-pointer hover:file:bg-green-100">
         </div>
-        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition">
+        <button type="submit"
+                class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition">
             <i class="fas fa-upload mr-2"></i>Upload
         </button>
     </form>
 </div>
 
+<!-- IMAGE LOG TABLE (Supabase records) -->
+{% if db_images %}
+<div class="bg-white rounded-2xl shadow-md p-6 mb-8">
+    <h3 class="text-xl font-semibold text-gray-800 mb-4">
+        <i class="fas fa-database text-purple-600 mr-2"></i>Image Log
+        <span class="text-sm font-normal text-gray-500 ml-2">({{ db_images|length }} records)</span>
+    </h3>
+    <div class="overflow-x-auto">
+        <table class="min-w-full">
+            <thead class="bg-green-600 text-white">
+                <tr>
+                    <th class="px-4 py-3 text-left text-sm font-semibold">Preview</th>
+                    <th class="px-4 py-3 text-left text-sm font-semibold">Filename</th>
+                    <th class="px-4 py-3 text-left text-sm font-semibold">Captured At</th>
+                    <th class="px-4 py-3 text-left text-sm font-semibold">Source</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+                {% for img in db_images %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-3">
+                        <a href="{{ url_for('static', filename='images/captures/' + img.filename) }}"
+                           target="_blank" rel="noopener">
+                            <img src="{{ url_for('static', filename='images/captures/' + img.filename) }}"
+                                 alt="{{ img.filename }}"
+                                 class="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                                 onerror="this.src=''; this.alt='Not found'; this.className='w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400'">
+                        </a>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-800 font-mono">{{ img.filename }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">
+                        {{ img.captured_at[:19].replace('T', ' ') if img.captured_at else '--' }}
+                    </td>
+                    <td class="px-4 py-3">
+                        {% if img.source == 'snapshot' %}
+                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                            <i class="fas fa-camera"></i> Snapshot
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                            <i class="fas fa-upload"></i> Upload
+                        </span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <!-- GALLERY -->
 <div class="bg-white rounded-2xl shadow-md p-6">
     <h3 class="text-xl font-semibold text-gray-800 mb-4">
-        <i class="fas fa-images text-blue-600 mr-2"></i>Images (newest first)
+        <i class="fas fa-images text-blue-600 mr-2"></i>Gallery
+        <span class="text-sm font-normal text-gray-500 ml-2">(newest first)</span>
     </h3>
+
+    {% set images = db_images if db_images else fs_images %}
     {% if images %}
     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {% for name in images %}
-        <div class="rounded-xl overflow-hidden border border-gray-200 bg-gray-50 card-hover">
-            <a href="{{ url_for('static', filename='images/captures/' + name) }}" target="_blank" rel="noopener" class="block aspect-square">
-                <img src="{{ url_for('static', filename='images/captures/' + name) }}" 
-                     alt="{{ name }}" 
-                     class="w-full h-full object-cover">
-            </a>
-            <p class="p-2 text-sm text-gray-600 truncate" title="{{ name }}">{{ name }}</p>
-        </div>
+        {% for img in images %}
+            {% set name = img.filename if img is mapping else img %}
+            <div class="rounded-xl overflow-hidden border border-gray-200 bg-gray-50 card-hover">
+                <a href="{{ url_for('static', filename='images/captures/' + name) }}"
+                   target="_blank" rel="noopener" class="block aspect-square">
+                    <img src="{{ url_for('static', filename='images/captures/' + name) }}"
+                         alt="{{ name }}"
+                         class="w-full h-full object-cover">
+                </a>
+                <p class="p-2 text-xs text-gray-500 truncate font-mono" title="{{ name }}">{{ name }}</p>
+            </div>
         {% endfor %}
     </div>
     {% else %}
