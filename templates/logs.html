@@ -44,6 +44,17 @@
 </div>
 
 <!-- LOG TABLE -->
+<div class="bg-white rounded-2xl shadow-md p-6 mb-8">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-gray-800">Temperature & Humidity</h3>
+        <p class="text-sm text-gray-500">Last 50 logs</p>
+    </div>
+    <div class="h-80">
+        <canvas id="tempHumChart"></canvas>
+    </div>
+</div>
+
+<!-- LOG TABLE -->
 <div class="bg-white rounded-2xl shadow-md p-6">
     <div class="flex items-center justify-between mb-6">
         <h3 class="text-xl font-semibold text-gray-800">Recent Logs</h3>
@@ -89,7 +100,95 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+let tempHumChart = null;
+
+function initTempHumChart() {
+    const canvas = document.getElementById('tempHumChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    tempHumChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Temperature (°C)',
+                    data: [],
+                    borderColor: '#dc2626',
+                    backgroundColor: 'rgba(220, 38, 38, 0.12)',
+                    tension: 0.25,
+                    pointRadius: 2,
+                    spanGaps: true
+                },
+                {
+                    label: 'Humidity (%)',
+                    data: [],
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+                    tension: 0.25,
+                    pointRadius: 2,
+                    spanGaps: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        maxTicksLimit: 8
+                    },
+                    title: {
+                        display: true,
+                        text: 'Time'
+                    }
+                },
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+function updateTempHumChart(logs) {
+    if (!tempHumChart) return;
+
+    const ordered = [...logs].reverse();
+    const labels = ordered.map(row => {
+        if (!row.timestamp) return '--';
+        return new Date(row.timestamp).toLocaleTimeString();
+    });
+
+    const tempData = ordered.map(row => row.temperature !== null && row.temperature !== undefined
+        ? parseFloat(row.temperature)
+        : null
+    );
+    const humData = ordered.map(row => row.humidity !== null && row.humidity !== undefined
+        ? parseFloat(row.humidity)
+        : null
+    );
+
+    tempHumChart.data.labels = labels;
+    tempHumChart.data.datasets[0].data = tempData;
+    tempHumChart.data.datasets[1].data = humData;
+    tempHumChart.update();
+}
+
 async function updateCurrentReadings() {
     try {
         const res  = await fetch('/api/sensors');
@@ -170,6 +269,8 @@ async function loadLogs() {
 
         document.getElementById('logCount').innerText =
             `Showing most recent ${recentLogs.length} of ${logs.length} entries`;
+
+        updateTempHumChart(recentLogs);
     } catch (e) {
         console.error('Log fetch failed:', e);
     }
@@ -179,6 +280,7 @@ function exportLogs() {
     window.location.href = '/logs/export';
 }
 
+initTempHumChart();
 updateCurrentReadings();
 loadLogs();
 setInterval(updateCurrentReadings, 3000);

@@ -8,6 +8,8 @@ import os
 import threading
 import time
 import io
+import platform
+import shutil
 import bcrypt
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -138,6 +140,7 @@ settings = {
         "max_temp":         35,
         "min_temp":         15,
         "max_humidity":     70,
+        "min_humidity":     40,
         "max_bin_capacity": 90
     },
     "notifications": {
@@ -242,6 +245,55 @@ def db_save_image(filename, source="snapshot"):
     except Exception as e:
         print(f"[WARN] Could not save image record: {e}")
 
+# ------------------ SYSTEM INFO ------------------
+def format_uptime(total_seconds):
+    total_seconds = max(0, int(total_seconds))
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+    if days > 0:
+        return f"{days}d {hours}h {minutes}m"
+    return f"{hours}h {minutes}m"
+
+def get_system_uptime_seconds():
+    try:
+        if os.path.exists("/proc/uptime"):
+            with open("/proc/uptime", "r", encoding="utf-8") as f:
+                return float(f.read().split()[0])
+    except Exception:
+        pass
+    return time.time() - app_start_time
+
+def get_cpu_temp_text():
+    thermal_path = "/sys/class/thermal/thermal_zone0/temp"
+    try:
+        if os.path.exists(thermal_path):
+            with open(thermal_path, "r", encoding="utf-8") as f:
+                milli_c = float(f.read().strip())
+            return f"{milli_c / 1000:.1f}°C"
+    except Exception:
+        pass
+    return "N/A"
+
+def get_raspberry_model():
+    model_path = "/proc/device-tree/model"
+    try:
+        if os.path.exists(model_path):
+            with open(model_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read().replace("\x00", "").strip()
+    except Exception:
+        pass
+    return platform.platform()
+
+def get_storage_text(path="/"):
+    try:
+        usage = shutil.disk_usage(path)
+        used_gb = usage.used / (1024 ** 3)
+        total_gb = usage.total / (1024 ** 3)
+        return f"{used_gb:.1f} GB / {total_gb:.1f} GB"
+    except Exception:
+        return "N/A"
+
 # ------------------ SENSOR READS ------------------
 
 def read_dht22():
@@ -283,6 +335,8 @@ def read_water_sensor():
     return "wet" if GPIO.input(WATER_PIN) == GPIO.HIGH else "dry"
 
 def read_sensors():
+    previous_water_status = sensor_data.get("water_status")
+
     # DHT22
     temperature, humidity = read_dht22()
     if temperature is None or humidity is None:
@@ -328,11 +382,10 @@ def read_sensors():
     if sensor_data["humidity"] is not None:
         if sensor_data["humidity"] > th.get("max_humidity", 70):
             db_add_alert("warning", f"High humidity: {sensor_data['humidity']}%")
-    if sensor_data["bin_capacity"] is not None:
-        if sensor_data["bin_capacity"] > th.get("max_bin_capacity", 90):
-            db_add_alert("danger", f"Bin almost full: {sensor_data['bin_capacity']}%")
-    if sensor_data["water_status"] == "dry":
-        db_add_alert("info", "HW-038 reports dry.")
+        if sensor_data["humidity"] < th.get("min_humidity", 40):
+            db_add_alert("warning", f"Low humidity: {sensor_data['humidity']}%")
+    if sensor_data["water_status"] == "wet" and previous_water_status != "wet":
+        db_add_alert("warning", "HW-038 reports wet.")
 
 # ------------------ BACKGROUND TASK ------------------
 def background_task():
@@ -495,6 +548,15 @@ def mark_alert_read(alert_id):
         print(f"[WARN] mark_alert_read: {e}")
     return redirect(url_for("alerts_page"))
 
+@app.route("/alerts/mark-all-read", methods=["POST"])
+@login_required
+def mark_all_alerts_read():
+    try:
+        supabase.table("alerts").update({"read": True}).eq("read", False).execute()
+    except Exception as e:
+        print(f"[WARN] mark_all_alerts_read: {e}")
+    return redirect(url_for("alerts_page"))
+
 @app.route("/settings", methods=["GET", "POST"], endpoint="settings")
 @login_required
 def settings_page():
@@ -506,6 +568,7 @@ def settings_page():
                 "max_temp":         float(request.form.get("max_temp",         35)),
                 "min_temp":         float(request.form.get("min_temp",         15)),
                 "max_humidity":     float(request.form.get("max_humidity",     70)),
+                "min_humidity":     float(request.form.get("min_humidity",     40)),
                 "max_bin_capacity": float(request.form.get("max_bin_capacity", 90))
             }
             settings["thresholds"] = val
@@ -530,14 +593,14 @@ def settings_page():
         db_add_alert("info", "Settings saved successfully")
         return redirect(url_for("settings"))
 
-    uptime_seconds = int(time.time() - app_start_time)
+    uptime_seconds = int(get_system_uptime_seconds())
     system_info = {
-        "device_name":     "Bokashi Composter v1.0",
+        "device_name":     platform.node() or "Unknown",
         "version":         "1.0.0",
-        "raspberry_model": "Raspberry Pi 4",
-        "uptime":          f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m",
-        "cpu_temp":        "45°C",
-        "storage_used":    "2.3 GB / 32 GB"
+        "raspberry_model": get_raspberry_model(),
+        "uptime":          format_uptime(uptime_seconds),
+        "cpu_temp":        get_cpu_temp_text(),
+        "storage_used":    get_storage_text("/")
     }
     return render_template("settings.html", active_page="settings",
                            settings=settings, system_info=system_info)
