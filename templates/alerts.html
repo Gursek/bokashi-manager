@@ -45,9 +45,16 @@
 <div class="bg-white rounded-2xl shadow-md p-6">
     <div class="flex items-center justify-between mb-6">
         <h3 class="text-xl font-semibold text-gray-800">Recent Alerts</h3>
-        <button onclick="location.reload()" class="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg font-semibold transition">
-            <i class="fas fa-sync-alt mr-2"></i>Refresh
-        </button>
+        <div class="flex items-center gap-2">
+            <form method="POST" action="{{ url_for('mark_all_alerts_read') }}">
+                <button type="submit" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold transition">
+                    <i class="fas fa-check-double mr-2"></i>Mark All as Read
+                </button>
+            </form>
+            <button onclick="location.reload()" class="bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg font-semibold transition">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+        </div>
     </div>
     
     <div class="space-y-3">
