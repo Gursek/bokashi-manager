@@ -1,13 +1,12 @@
 from flask import (
     Flask, render_template, jsonify, request,
-    redirect, url_for, send_file, session
+    redirect, url_for, send_file, session, Response
 )
 import datetime
 import csv
 import os
 import threading
 import time
-import json
 import io
 import bcrypt
 from dotenv import load_dotenv
@@ -27,15 +26,24 @@ try:
     GPIO_AVAILABLE = True
 except ImportError:
     GPIO_AVAILABLE = False
-    print("[WARN] RPi.GPIO not found. Ultrasonic & water sensor readings will be simulated.")
+    print("[WARN] RPi.GPIO not found. Sensor readings will be simulated.")
+
+# ------------------ CAMERA IMPORT ------------------
+try:
+    from picamera2 import Picamera2
+    import libcamera
+    CAMERA_AVAILABLE = True
+except ImportError:
+    CAMERA_AVAILABLE = False
+    print("[WARN] picamera2 not found. Camera will be unavailable.")
 
 # ------------------ ENV ------------------
 load_dotenv()
 
-SUPABASE_URL  = os.getenv("SUPABASE_URL")
-SUPABASE_KEY  = os.getenv("SUPABASE_KEY")
+SUPABASE_URL    = os.getenv("SUPABASE_URL")
+SUPABASE_KEY    = os.getenv("SUPABASE_KEY")
 PASSPHRASE_HASH = os.getenv("SECRET_PASSPHRASE_HASH", "").encode()
-FLASK_SECRET  = os.getenv("FLASK_SECRET_KEY", "changeme-set-in-env")
+FLASK_SECRET    = os.getenv("FLASK_SECRET_KEY", "changeme-set-in-env")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -62,7 +70,53 @@ def setup_gpio():
 app = Flask(__name__)
 app.config['SECRET_KEY'] = FLASK_SECRET
 
-# ------------------ IN-MEMORY SENSOR STATE ------------------
+# ------------------ CAMERA ------------------
+camera      = None
+camera_lock = threading.Lock()
+
+def init_camera():
+    global camera
+    if not CAMERA_AVAILABLE:
+        return
+    try:
+        camera = Picamera2()
+        config = camera.create_video_configuration(
+            main={"size": (320, 240), "format": "RGB888"},
+            controls={"FrameRate": 5}
+        )
+        camera.configure(config)
+        camera.start()
+        time.sleep(1)  # warm-up
+        print("[INFO] Camera started.")
+    except Exception as e:
+        print(f"[WARN] Camera init failed: {e}")
+        camera = None
+
+def capture_jpeg():
+    """Capture JPEG directly from camera"""
+    if not CAMERA_AVAILABLE or camera is None:
+        return None
+    with camera_lock:
+        try:
+            buf = io.BytesIO()
+            camera.capture_file(buf, format="jpeg")
+            return buf.getvalue()
+        except Exception as e:
+            print(f"[WARN] Frame capture failed: {e}")
+            return None
+
+def generate_mjpeg():
+    """Yields MJPEG frames for the live stream endpoint."""
+    while True:
+        frame = capture_jpeg()
+        if frame:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+            )
+        time.sleep(0.5)
+
+# ------------------ IN-MEMORY STATE ------------------
 sensor_data = {
     "temperature":  None,
     "humidity":     None,
@@ -72,12 +126,13 @@ sensor_data = {
     "sensor_error": None
 }
 
-device_state = {
-    "sensors_online": True,
-    "gsm_status": "standby"
+sensor_status = {
+    "dht22":  "unknown",
+    "hcsr04": "unknown",
+    "hw038":  "unknown",
+    "camera": "unknown"
 }
 
-# Default settings (overridden by Supabase on load)
 settings = {
     "thresholds": {
         "max_temp":         35,
@@ -146,7 +201,7 @@ def db_load_settings():
             if key in settings:
                 settings[key] = val
     except Exception as e:
-        print(f"[WARN] Could not load settings from Supabase: {e}")
+        print(f"[WARN] Could not load settings: {e}")
 
 def db_save_setting(key, value):
     try:
@@ -177,6 +232,16 @@ def db_log_sensor(data):
     except Exception as e:
         print(f"[WARN] Could not log sensor data: {e}")
 
+def db_save_image(filename, source="snapshot"):
+    try:
+        supabase.table("images").insert({
+            "filename":    filename,
+            "captured_at": datetime.datetime.now().isoformat(),
+            "source":      source
+        }).execute()
+    except Exception as e:
+        print(f"[WARN] Could not save image record: {e}")
+
 # ------------------ SENSOR READS ------------------
 
 def read_dht22():
@@ -193,7 +258,7 @@ def read_ultrasonic_cm():
     GPIO.output(TRIG_PIN, GPIO.HIGH)
     time.sleep(0.00001)
     GPIO.output(TRIG_PIN, GPIO.LOW)
-    timeout = time.time() + 0.04
+    timeout     = time.time() + 0.04
     pulse_start = time.time()
     while GPIO.input(ECHO_PIN) == GPIO.LOW:
         pulse_start = time.time()
@@ -210,8 +275,7 @@ def read_ultrasonic_cm():
 def distance_to_bin_capacity_pct(distance_cm):
     if distance_cm is None:
         return None
-    capacity = ((BIN_HEIGHT_CM - distance_cm) / BIN_HEIGHT_CM) * 100
-    return round(max(0.0, min(100.0, capacity)), 1)
+    return round(max(0.0, min(100.0, ((BIN_HEIGHT_CM - distance_cm) / BIN_HEIGHT_CM) * 100)), 1)
 
 def read_water_sensor():
     if not GPIO_AVAILABLE:
@@ -219,29 +283,42 @@ def read_water_sensor():
     return "wet" if GPIO.input(WATER_PIN) == GPIO.HIGH else "dry"
 
 def read_sensors():
-    errors = []
-
+    # DHT22
     temperature, humidity = read_dht22()
     if temperature is None or humidity is None:
-        errors.append("DHT22 read failed")
-        db_add_alert("warning", "DHT22 sensor read failed – check wiring on GPIO4.")
+        sensor_status["dht22"] = "offline"
+        db_add_alert("warning", "DHT22 read failed – check GPIO4.")
     else:
         sensor_data["temperature"] = round(temperature, 1)
         sensor_data["humidity"]    = round(humidity, 1)
+        sensor_status["dht22"]     = "online"
 
-    distance    = read_ultrasonic_cm()
+    # HC-SR04
+    distance     = read_ultrasonic_cm()
     capacity_pct = distance_to_bin_capacity_pct(distance)
     if capacity_pct is None:
-        errors.append("HC-SR04 timeout")
-        db_add_alert("warning", "Ultrasonic sensor timeout – check wiring on GPIO23/GPIO24.")
+        sensor_status["hcsr04"] = "offline"
+        db_add_alert("warning", "Ultrasonic timeout – check GPIO23/GPIO24.")
     else:
         sensor_data["bin_capacity"] = capacity_pct
+        sensor_status["hcsr04"]     = "online"
 
-    sensor_data["water_status"] = read_water_sensor()
+    # HW-038
+    try:
+        sensor_data["water_status"] = read_water_sensor()
+        sensor_status["hw038"]      = "online"
+    except Exception:
+        sensor_status["hw038"] = "offline"
+
+    # Camera
+    sensor_status["camera"] = "online" if (CAMERA_AVAILABLE and camera is not None) else "offline"
+
+    # Errors summary
+    offline = [k for k, v in sensor_status.items() if v == "offline"]
     sensor_data["last_updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    sensor_data["sensor_error"] = "; ".join(errors) if errors else None
-    device_state["sensors_online"] = len(errors) == 0
+    sensor_data["sensor_error"] = f"Offline: {', '.join(offline)}" if offline else None
 
+    # Threshold alerts
     th = settings.get("thresholds", {})
     if sensor_data["temperature"] is not None:
         if sensor_data["temperature"] > th.get("max_temp", 35):
@@ -255,11 +332,12 @@ def read_sensors():
         if sensor_data["bin_capacity"] > th.get("max_bin_capacity", 90):
             db_add_alert("danger", f"Bin almost full: {sensor_data['bin_capacity']}%")
     if sensor_data["water_status"] == "dry":
-        db_add_alert("info", "HW-038 reports dry – no water detected.")
+        db_add_alert("info", "HW-038 reports dry.")
 
 # ------------------ BACKGROUND TASK ------------------
 def background_task():
     setup_gpio()
+    init_camera()
     db_load_settings()
     while True:
         db_load_settings()
@@ -268,7 +346,35 @@ def background_task():
         interval = settings.get("logging", {}).get("interval_seconds", 60)
         time.sleep(interval)
 
-# ------------------ ROUTES (all protected) ------------------
+# ------------------ CAMERA ROUTES ------------------
+
+@app.route("/camera/stream")
+@login_required
+def camera_stream():
+    if not CAMERA_AVAILABLE or camera is None:
+        return "Camera not available", 503
+    return Response(generate_mjpeg(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+@app.route("/camera/snapshot", methods=["POST"])
+@login_required
+def camera_snapshot():
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    if not CAMERA_AVAILABLE or camera is None:
+        db_add_alert("warning", "Snapshot failed – camera not available.")
+        return redirect(url_for("device_control"))
+    frame = capture_jpeg()
+    if frame is None:
+        db_add_alert("warning", "Snapshot failed – could not capture frame.")
+        return redirect(url_for("device_control"))
+    filename = datetime.datetime.now().strftime("snap_%Y%m%d_%H%M%S.jpg")
+    with open(os.path.join(IMAGES_DIR, filename), "wb") as f:
+        f.write(frame)
+    db_save_image(filename, source="snapshot")
+    db_add_alert("info", f"Snapshot saved: {filename}")
+    return redirect(url_for("view_images"))
+
+# ------------------ PAGE ROUTES ------------------
 
 @app.route("/")
 @login_required
@@ -298,7 +404,7 @@ def add_batch():
         }).execute()
         db_add_alert("info", f"New batch '{data.get('name')}' created")
     except Exception as e:
-        print(f"[WARN] add_batch error: {e}")
+        print(f"[WARN] add_batch: {e}")
     return redirect(url_for("batch_management"))
 
 @app.route("/batches/complete/<int:batch_id>")
@@ -311,7 +417,7 @@ def complete_batch(batch_id):
         }).eq("id", batch_id).execute()
         db_add_alert("info", "Batch marked as completed")
     except Exception as e:
-        print(f"[WARN] complete_batch error: {e}")
+        print(f"[WARN] complete_batch: {e}")
     return redirect(url_for("batch_management"))
 
 @app.route("/logs-page")
@@ -340,7 +446,12 @@ def get_capture_images():
 @login_required
 def view_images():
     os.makedirs(IMAGES_DIR, exist_ok=True)
-    return render_template("images.html", images=get_capture_images(), active_page="control")
+    try:
+        db_images = supabase.table("images").select("*").order("captured_at", desc=True).execute().data
+    except Exception:
+        db_images = []
+    fs_images = get_capture_images()
+    return render_template("images.html", db_images=db_images, fs_images=fs_images, active_page="control")
 
 @app.route("/control/images/upload", methods=["POST"])
 @login_required
@@ -353,9 +464,10 @@ def upload_image():
     if ext not in ALLOWED_IMAGE_EXTENSIONS:
         db_add_alert("warning", "Invalid image type.")
         return redirect(url_for("view_images"))
-    safe_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + "." + ext
+    safe_name = datetime.datetime.now().strftime("upload_%Y%m%d_%H%M%S") + "." + ext
     file.save(os.path.join(IMAGES_DIR, safe_name))
-    db_add_alert("info", f"Image saved: {safe_name}")
+    db_save_image(safe_name, source="upload")
+    db_add_alert("info", f"Image uploaded: {safe_name}")
     return redirect(url_for("view_images"))
 
 @app.route("/control/add-bran", methods=["POST"])
@@ -380,7 +492,7 @@ def mark_alert_read(alert_id):
     try:
         supabase.table("alerts").update({"read": True}).eq("id", alert_id).execute()
     except Exception as e:
-        print(f"[WARN] mark_alert_read error: {e}")
+        print(f"[WARN] mark_alert_read: {e}")
     return redirect(url_for("alerts_page"))
 
 @app.route("/settings", methods=["GET", "POST"], endpoint="settings")
@@ -430,7 +542,7 @@ def settings_page():
     return render_template("settings.html", active_page="settings",
                            settings=settings, system_info=system_info)
 
-# ------------------ API ROUTES (also protected) ------------------
+# ------------------ API ROUTES ------------------
 
 @app.route("/api/sensors")
 @login_required
@@ -440,14 +552,7 @@ def api_sensors():
 @app.route("/api/device-status")
 @login_required
 def api_device_status():
-    return jsonify({
-        "sensors": {
-            "temperature": "online" if device_state["sensors_online"] else "offline",
-            "humidity":    "online" if device_state["sensors_online"] else "offline",
-            "water":       "online" if device_state["sensors_online"] else "offline"
-        },
-        "gsm_status": device_state["gsm_status"]
-    })
+    return jsonify({"sensors": sensor_status})
 
 @app.route("/api/stats")
 @login_required
@@ -458,9 +563,8 @@ def api_stats():
         completed_batches = sum(1 for b in all_batches if b["status"] == "completed")
         unread_alerts     = supabase.table("alerts").select("id", count="exact").eq("read", False).execute().count
     except Exception:
-        active_batches    = 0
-        completed_batches = 0
-        unread_alerts     = 0
+        active_batches = completed_batches = 0
+        unread_alerts  = 0
     return jsonify({
         "active_batches":    active_batches,
         "completed_batches": completed_batches,
@@ -502,7 +606,7 @@ def clear_logs():
         supabase.table("sensor_logs").delete().neq("id", 0).execute()
         db_add_alert("info", "Sensor logs cleared")
     except Exception as e:
-        print(f"[WARN] clear_logs error: {e}")
+        print(f"[WARN] clear_logs: {e}")
     return redirect(url_for("logs_page"))
 
 @app.route("/control/test-alert", methods=["POST"])
