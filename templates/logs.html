@@ -43,11 +43,11 @@
     </div>
 </div>
 
-<!-- LOG TABLE -->
+<!-- CHART -->
 <div class="bg-white rounded-2xl shadow-md p-6 mb-8">
     <div class="flex items-center justify-between mb-4">
-        <h3 class="text-xl font-semibold text-gray-800">Temperature & Humidity</h3>
-        <p class="text-sm text-gray-500">Last 50 logs</p>
+        <h3 class="text-xl font-semibold text-gray-800">Temperature &amp; Humidity</h3>
+        <p class="text-sm text-gray-500">Last 50 readings</p>
     </div>
     <div class="h-80">
         <canvas id="tempHumChart"></canvas>
@@ -67,13 +67,6 @@
                     class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-semibold transition">
                 <i class="fas fa-download mr-2"></i>Export CSV
             </button>
-            <form method="POST" action="/logs/clear" style="display:inline;">
-                <button type="submit"
-                        class="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg font-semibold transition"
-                        onclick="return confirm('Clear all logs?')">
-                    <i class="fas fa-trash mr-2"></i>Clear Logs
-                </button>
-            </form>
         </div>
     </div>
 
@@ -81,11 +74,12 @@
         <table class="min-w-full">
             <thead class="bg-green-600 text-white">
                 <tr>
-                    <th class="px-6 py-3 text-left text-sm font-semibold">Timestamp</th>
-                    <th class="px-6 py-3 text-left text-sm font-semibold">Temperature (°C)</th>
-                    <th class="px-6 py-3 text-left text-sm font-semibold">Humidity (%)</th>
-                    <th class="px-6 py-3 text-left text-sm font-semibold">Bin Capacity (%)</th>
-                    <th class="px-6 py-3 text-left text-sm font-semibold">Water Presence</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Date</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Time</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Temperature</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Humidity</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Bin Capacity</th>
+                    <th class="px-6 py-3 text-left text-sm font-semibold">Water</th>
                 </tr>
             </thead>
             <tbody id="logTable" class="divide-y divide-gray-200">
@@ -94,7 +88,7 @@
     </div>
 
     <div class="mt-4 text-center">
-        <p id="logCount" class="text-sm text-gray-600">Loading logs...</p>
+        <p id="logCount" class="text-sm text-gray-500">Loading logs…</p>
     </div>
 </div>
 {% endblock %}
@@ -102,13 +96,30 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+// ── Timestamp helpers ────────────────────────────────────────────
+function formatDate(isoString) {
+    if (!isoString) return '--';
+    const d = new Date(isoString);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatTime(isoString) {
+    if (!isoString) return '--';
+    const d = new Date(isoString);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatTimeShort(isoString) {
+    if (!isoString) return '--';
+    const d = new Date(isoString);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Chart ────────────────────────────────────────────────────────
 let tempHumChart = null;
 
-function initTempHumChart() {
-    const canvas = document.getElementById('tempHumChart');
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
+function initChart() {
+    const ctx = document.getElementById('tempHumChart').getContext('2d');
     tempHumChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -118,7 +129,7 @@ function initTempHumChart() {
                     label: 'Temperature (°C)',
                     data: [],
                     borderColor: '#dc2626',
-                    backgroundColor: 'rgba(220, 38, 38, 0.12)',
+                    backgroundColor: 'rgba(220,38,38,0.10)',
                     tension: 0.25,
                     pointRadius: 2,
                     spanGaps: true
@@ -127,7 +138,7 @@ function initTempHumChart() {
                     label: 'Humidity (%)',
                     data: [],
                     borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+                    backgroundColor: 'rgba(37,99,235,0.10)',
                     tension: 0.25,
                     pointRadius: 2,
                     spanGaps: true
@@ -138,70 +149,42 @@ function initTempHumChart() {
             responsive: true,
             maintainAspectRatio: false,
             animation: false,
-            interaction: {
-                mode: 'index',
-                intersect: false
-            },
-            plugins: {
-                legend: {
-                    position: 'top'
-                }
-            },
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { position: 'top' } },
             scales: {
                 x: {
-                    ticks: {
-                        maxTicksLimit: 8
-                    },
-                    title: {
-                        display: true,
-                        text: 'Time'
-                    }
+                    ticks: { maxTicksLimit: 8 },
+                    title: { display: true, text: 'Time' }
                 },
-                y: {
-                    beginAtZero: true
-                }
+                y: { beginAtZero: true }
             }
         }
     });
 }
 
-function updateTempHumChart(logs) {
+function updateChart(logs) {
     if (!tempHumChart) return;
-
     const ordered = [...logs].reverse();
-    const labels = ordered.map(row => {
-        if (!row.timestamp) return '--';
-        return new Date(row.timestamp).toLocaleTimeString();
-    });
-
-    const tempData = ordered.map(row => row.temperature !== null && row.temperature !== undefined
-        ? parseFloat(row.temperature)
-        : null
-    );
-    const humData = ordered.map(row => row.humidity !== null && row.humidity !== undefined
-        ? parseFloat(row.humidity)
-        : null
-    );
-
-    tempHumChart.data.labels = labels;
-    tempHumChart.data.datasets[0].data = tempData;
-    tempHumChart.data.datasets[1].data = humData;
+    tempHumChart.data.labels              = ordered.map(r => formatTimeShort(r.timestamp));
+    tempHumChart.data.datasets[0].data    = ordered.map(r => r.temperature ?? null);
+    tempHumChart.data.datasets[1].data    = ordered.map(r => r.humidity    ?? null);
     tempHumChart.update();
 }
 
+// ── Current readings ─────────────────────────────────────────────
 async function updateCurrentReadings() {
     try {
-        const res  = await fetch('/api/sensors');
-        const data = await res.json();
+        const data = await fetch('/api/sensors').then(r => r.json());
 
         document.getElementById('currentTemp').innerText =
-            data.temperature !== null ? data.temperature.toFixed(1) + ' °C' : '-- °C';
+            data.temperature != null ? data.temperature.toFixed(1) + ' °C' : '-- °C';
         document.getElementById('currentHum').innerText =
-            data.humidity !== null ? data.humidity.toFixed(1) + ' %' : '-- %';
+            data.humidity != null ? data.humidity.toFixed(1) + ' %' : '-- %';
 
         const badge = document.getElementById('currentWaterStatusBadge');
         const dot   = document.getElementById('currentWaterStatusDot');
         const label = document.getElementById('currentWaterStatus');
+
         if (data.water_status === 'wet') {
             label.innerText        = 'Wet';
             badge.style.background = '#ccfbf1';
@@ -223,54 +206,51 @@ async function updateCurrentReadings() {
     }
 }
 
+// ── Log table ────────────────────────────────────────────────────
 async function loadLogs() {
     try {
-        const res  = await fetch('/logs');
-        const logs = await res.json();
-
+        const logs       = await fetch('/logs').then(r => r.json());
+        const recentLogs = logs.slice(0, 50);
         const table      = document.getElementById('logTable');
         table.innerHTML  = '';
-        const recentLogs = logs.slice(0, 50);
 
         recentLogs.forEach(row => {
-            // Supabase returns snake_case keys: timestamp, temperature, humidity, bin_capacity, water_status
             const presence = (row.water_status || '').toLowerCase();
-            const badgeStyle = presence === 'wet'
-                ? 'background:#cffafe; color:#0e7490; border-radius:6px; padding:2px 8px;'
-                : presence === 'dry'
-                    ? 'background:#fef9c3; color:#b45309; border-radius:6px; padding:2px 8px;'
-                    : '';
-            const presenceLabel = presence
-                ? presence.charAt(0).toUpperCase() + presence.slice(1)
-                : '--';
+            let presenceBadge;
+            if (presence === 'wet') {
+                presenceBadge = `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-700">
+                    <span class="w-2 h-2 rounded-full bg-cyan-400 inline-block"></span> Wet</span>`;
+            } else if (presence === 'dry') {
+                presenceBadge = `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
+                    <span class="w-2 h-2 rounded-full bg-yellow-400 inline-block"></span> Dry</span>`;
+            } else {
+                presenceBadge = `<span class="text-gray-400">--</span>`;
+            }
 
             const cap = row.bin_capacity;
-            const capDisplay = cap !== null && cap !== undefined
-                ? parseFloat(cap).toFixed(1) + ' %' : '--';
-
-            // Format timestamp (Supabase returns ISO string)
-            const ts = row.timestamp
-                ? new Date(row.timestamp).toLocaleString()
-                : '--';
+            const capDisplay = cap != null ? parseFloat(cap).toFixed(1) + ' %' : '--';
 
             const tr     = document.createElement('tr');
             tr.className = 'hover:bg-gray-50';
             tr.innerHTML = `
-                <td class="px-6 py-4 text-sm text-gray-800">${ts}</td>
-                <td class="px-6 py-4 text-sm text-red-600 font-semibold">${row.temperature ?? '--'}</td>
-                <td class="px-6 py-4 text-sm text-blue-600 font-semibold">${row.humidity ?? '--'}</td>
-                <td class="px-6 py-4 text-sm text-purple-600 font-semibold">${capDisplay}</td>
-                <td class="px-6 py-4 text-sm font-semibold">
-                    <span style="${badgeStyle}">${presenceLabel}</span>
+                <td class="px-6 py-4 text-sm text-gray-700">${formatDate(row.timestamp)}</td>
+                <td class="px-6 py-4 text-sm text-gray-500 font-mono">${formatTime(row.timestamp)}</td>
+                <td class="px-6 py-4 text-sm text-red-600 font-semibold">
+                    ${row.temperature != null ? parseFloat(row.temperature).toFixed(1) + ' °C' : '--'}
                 </td>
+                <td class="px-6 py-4 text-sm text-blue-600 font-semibold">
+                    ${row.humidity != null ? parseFloat(row.humidity).toFixed(1) + ' %' : '--'}
+                </td>
+                <td class="px-6 py-4 text-sm text-purple-600 font-semibold">${capDisplay}</td>
+                <td class="px-6 py-4 text-sm">${presenceBadge}</td>
             `;
             table.appendChild(tr);
         });
 
         document.getElementById('logCount').innerText =
-            `Showing most recent ${recentLogs.length} of ${logs.length} entries`;
+            `Showing ${recentLogs.length} of ${logs.length} total entries`;
 
-        updateTempHumChart(recentLogs);
+        updateChart(recentLogs);
     } catch (e) {
         console.error('Log fetch failed:', e);
     }
@@ -280,7 +260,8 @@ function exportLogs() {
     window.location.href = '/logs/export';
 }
 
-initTempHumChart();
+// ── Init ─────────────────────────────────────────────────────────
+initChart();
 updateCurrentReadings();
 loadLogs();
 setInterval(updateCurrentReadings, 3000);

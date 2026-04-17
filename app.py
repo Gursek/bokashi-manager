@@ -11,6 +11,7 @@ import io
 import platform
 import shutil
 import bcrypt
+import resend  # Added Resend
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from functools import wraps
@@ -46,8 +47,13 @@ SUPABASE_URL    = os.getenv("SUPABASE_URL")
 SUPABASE_KEY    = os.getenv("SUPABASE_KEY")
 PASSPHRASE_HASH = os.getenv("SECRET_PASSPHRASE_HASH", "").encode()
 FLASK_SECRET    = os.getenv("FLASK_SECRET_KEY", "changeme-set-in-env")
+RESEND_API_KEY  = os.getenv("RESEND_API_KEY")
+EMAIL_SENDER    = "Bokashi System <alerts@rpi.tail0f57db.ts.net>"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Initialize Resend
+resend.api_key = RESEND_API_KEY
 
 # ------------------ GPIO PIN CONFIGURATION ------------------
 DHT_SENSOR_TYPE = Adafruit_DHT.DHT22 if DHT_AVAILABLE else None
@@ -88,14 +94,13 @@ def init_camera():
         )
         camera.configure(config)
         camera.start()
-        time.sleep(1)  # warm-up
+        time.sleep(1)
         print("[INFO] Camera started.")
     except Exception as e:
         print(f"[WARN] Camera init failed: {e}")
         camera = None
 
 def capture_jpeg():
-    """Capture JPEG directly from camera"""
     if not CAMERA_AVAILABLE or camera is None:
         return None
     with camera_lock:
@@ -108,7 +113,6 @@ def capture_jpeg():
             return None
 
 def generate_mjpeg():
-    """Yields MJPEG frames for the live stream endpoint."""
     while True:
         frame = capture_jpeg()
         if frame:
@@ -117,6 +121,56 @@ def generate_mjpeg():
                 b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
             )
         time.sleep(0.5)
+
+# ------------------ TIMESTAMP HELPER ------------------
+def now_local_iso():
+    return datetime.datetime.now().isoformat()
+
+# ------------------ EMAIL & NOTIFICATION LOGIC ------------------
+
+def should_send_notification(notif_type, interval_minutes=60):
+    """Checks Supabase to see if we've sent this type of email recently."""
+    try:
+        now = datetime.datetime.now()
+        result = supabase.table("notification_logs").select("last_sent").eq("type", notif_type).execute()
+        
+        if result.data:
+            last_sent_str = result.data[0]["last_sent"]
+            last_sent = datetime.datetime.fromisoformat(last_sent_str.replace('Z', '+00:00'))
+            if (now.astimezone() - last_sent.astimezone()).total_seconds() < (interval_minutes * 60):
+                return False 
+        
+        supabase.table("notification_logs").upsert({
+            "type": notif_type, 
+            "last_sent": now.isoformat()
+        }).execute()
+        return True
+    except Exception as e:
+        print(f"[WARN] Throttling check failed: {e}")
+        return True
+
+def send_resend_email(subject, body, notif_type):
+    """Sends email via Resend if enabled in settings and not throttled."""
+    if not settings["notifications"]["email_enabled"]:
+        return
+
+    recipient = settings["notifications"]["email"]
+    if not recipient:
+        return
+
+    if not should_send_notification(notif_type):
+        return
+
+    try:
+        resend.Emails.send({
+            "from": EMAIL_SENDER,
+            "to": recipient,
+            "subject": f"[Bokashi Alert] {subject}",
+            "text": body
+        })
+        print(f"[INFO] Resend email sent: {notif_type}")
+    except Exception as e:
+        print(f"[ERROR] Resend failed: {e}")
 
 # ------------------ IN-MEMORY STATE ------------------
 sensor_data = {
@@ -215,7 +269,7 @@ def db_save_setting(key, value):
 def db_add_alert(level, message):
     try:
         supabase.table("alerts").insert({
-            "timestamp": datetime.datetime.now().isoformat(),
+            "timestamp": now_local_iso(),
             "level":     level,
             "message":   message,
             "read":      False
@@ -226,7 +280,7 @@ def db_add_alert(level, message):
 def db_log_sensor(data):
     try:
         supabase.table("sensor_logs").insert({
-            "timestamp":    data["last_updated"],
+            "timestamp":    now_local_iso(),
             "temperature":  data["temperature"],
             "humidity":     data["humidity"],
             "bin_capacity": data["bin_capacity"],
@@ -239,7 +293,7 @@ def db_save_image(filename, source="snapshot"):
     try:
         supabase.table("images").insert({
             "filename":    filename,
-            "captured_at": datetime.datetime.now().isoformat(),
+            "captured_at": now_local_iso(),
             "source":      source
         }).execute()
     except Exception as e:
@@ -248,38 +302,35 @@ def db_save_image(filename, source="snapshot"):
 # ------------------ SYSTEM INFO ------------------
 def format_uptime(total_seconds):
     total_seconds = max(0, int(total_seconds))
-    days, rem = divmod(total_seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, _ = divmod(rem, 60)
-    if days > 0:
-        return f"{days}d {hours}h {minutes}m"
-    return f"{hours}h {minutes}m"
+    days, rem     = divmod(total_seconds, 86400)
+    hours, rem    = divmod(rem, 3600)
+    minutes, _    = divmod(rem, 60)
+    return f"{days}d {hours}h {minutes}m" if days > 0 else f"{hours}h {minutes}m"
 
 def get_system_uptime_seconds():
     try:
         if os.path.exists("/proc/uptime"):
-            with open("/proc/uptime", "r", encoding="utf-8") as f:
+            with open("/proc/uptime", "r") as f:
                 return float(f.read().split()[0])
     except Exception:
         pass
     return time.time() - app_start_time
 
 def get_cpu_temp_text():
-    thermal_path = "/sys/class/thermal/thermal_zone0/temp"
     try:
-        if os.path.exists(thermal_path):
-            with open(thermal_path, "r", encoding="utf-8") as f:
-                milli_c = float(f.read().strip())
-            return f"{milli_c / 1000:.1f}°C"
+        path = "/sys/class/thermal/thermal_zone0/temp"
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return f"{float(f.read().strip()) / 1000:.1f}°C"
     except Exception:
         pass
     return "N/A"
 
 def get_raspberry_model():
-    model_path = "/proc/device-tree/model"
     try:
-        if os.path.exists(model_path):
-            with open(model_path, "r", encoding="utf-8", errors="ignore") as f:
+        path = "/proc/device-tree/model"
+        if os.path.exists(path):
+            with open(path, "r", errors="ignore") as f:
                 return f.read().replace("\x00", "").strip()
     except Exception:
         pass
@@ -287,10 +338,8 @@ def get_raspberry_model():
 
 def get_storage_text(path="/"):
     try:
-        usage = shutil.disk_usage(path)
-        used_gb = usage.used / (1024 ** 3)
-        total_gb = usage.total / (1024 ** 3)
-        return f"{used_gb:.1f} GB / {total_gb:.1f} GB"
+        u = shutil.disk_usage(path)
+        return f"{u.used / 1024**3:.1f} GB / {u.total / 1024**3:.1f} GB"
     except Exception:
         return "N/A"
 
@@ -367,12 +416,25 @@ def read_sensors():
     # Camera
     sensor_status["camera"] = "online" if (CAMERA_AVAILABLE and camera is not None) else "offline"
 
-    # Errors summary
+    # Error summary
     offline = [k for k, v in sensor_status.items() if v == "offline"]
     sensor_data["last_updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sensor_data["sensor_error"] = f"Offline: {', '.join(offline)}" if offline else None
 
-    # Threshold alerts
+    # --- EMAIL TRIGGERS ---
+    
+    # 1. Water Detection Alert
+    if sensor_data["water_status"] == "wet" and previous_water_status != "wet":
+        msg = "Water detected in the composter system. Check for leaks or drainage issues!"
+        db_add_alert("danger", msg)
+        send_resend_email("Bokashi tea detected", msg, "bokashi_tea")
+
+    # 2. Hardware Disconnection Alert
+    if offline:
+        msg = f"Connectivity Alert: The following sensors are offline: {', '.join(offline)}"
+        send_resend_email("Sensor Connection Error", msg, "sensor_offline")
+
+    # Threshold alerts (Standard Alerts)
     th = settings.get("thresholds", {})
     if sensor_data["temperature"] is not None:
         if sensor_data["temperature"] > th.get("max_temp", 35):
@@ -384,8 +446,9 @@ def read_sensors():
             db_add_alert("warning", f"High humidity: {sensor_data['humidity']}%")
         if sensor_data["humidity"] < th.get("min_humidity", 40):
             db_add_alert("warning", f"Low humidity: {sensor_data['humidity']}%")
-    if sensor_data["water_status"] == "wet" and previous_water_status != "wet":
-        db_add_alert("warning", "HW-038 reports wet.")
+    if sensor_data["bin_capacity"] is not None:
+        if sensor_data["bin_capacity"] > th.get("max_bin_capacity", 90):
+            db_add_alert("danger", f"Bin almost full: {sensor_data['bin_capacity']}%")
 
 # ------------------ BACKGROUND TASK ------------------
 def background_task():
@@ -593,12 +656,11 @@ def settings_page():
         db_add_alert("info", "Settings saved successfully")
         return redirect(url_for("settings"))
 
-    uptime_seconds = int(get_system_uptime_seconds())
     system_info = {
         "device_name":     platform.node() or "Unknown",
         "version":         "1.0.0",
         "raspberry_model": get_raspberry_model(),
-        "uptime":          format_uptime(uptime_seconds),
+        "uptime":          format_uptime(get_system_uptime_seconds()),
         "cpu_temp":        get_cpu_temp_text(),
         "storage_used":    get_storage_text("/")
     }
@@ -661,16 +723,6 @@ def export_logs_csv():
     buffer.seek(0)
     return send_file(buffer, mimetype="text/csv", as_attachment=True,
                      download_name=f"bokashi_logs_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv")
-
-@app.route("/logs/clear", methods=["POST"])
-@login_required
-def clear_logs():
-    try:
-        supabase.table("sensor_logs").delete().neq("id", 0).execute()
-        db_add_alert("info", "Sensor logs cleared")
-    except Exception as e:
-        print(f"[WARN] clear_logs: {e}")
-    return redirect(url_for("logs_page"))
 
 @app.route("/control/test-alert", methods=["POST"])
 @login_required
