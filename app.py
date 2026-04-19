@@ -10,8 +10,10 @@ import time
 import io
 import platform
 import shutil
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import bcrypt
-import resend  # Added Resend
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from functools import wraps
@@ -47,13 +49,10 @@ SUPABASE_URL    = os.getenv("SUPABASE_URL")
 SUPABASE_KEY    = os.getenv("SUPABASE_KEY")
 PASSPHRASE_HASH = os.getenv("SECRET_PASSPHRASE_HASH", "").encode()
 FLASK_SECRET    = os.getenv("FLASK_SECRET_KEY", "changeme-set-in-env")
-RESEND_API_KEY  = os.getenv("RESEND_API_KEY")
-EMAIL_SENDER    = "Bokashi System <alerts@rpi.tail0f57db.ts.net>"
+GMAIL_USER      = os.getenv("GMAIL_USER")       # your Gmail address
+GMAIL_APP_PASS  = os.getenv("GMAIL_APP_PASSWORD")  # 16-char app password
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Initialize Resend
-resend.api_key = RESEND_API_KEY
 
 # ------------------ GPIO PIN CONFIGURATION ------------------
 DHT_SENSOR_TYPE = Adafruit_DHT.DHT22 if DHT_AVAILABLE else None
@@ -126,51 +125,78 @@ def generate_mjpeg():
 def now_local_iso():
     return datetime.datetime.now().isoformat()
 
-# ------------------ EMAIL & NOTIFICATION LOGIC ------------------
+# ------------------ EMAIL VIA GMAIL SMTP ------------------
+# Cooldown tracker — prevents repeated emails for the same event
+_last_email_sent = {}
 
-def should_send_notification(notif_type, interval_minutes=60):
-    """Checks Supabase to see if we've sent this type of email recently."""
-    try:
-        now = datetime.datetime.now()
-        result = supabase.table("notification_logs").select("last_sent").eq("type", notif_type).execute()
-        
-        if result.data:
-            last_sent_str = result.data[0]["last_sent"]
-            last_sent = datetime.datetime.fromisoformat(last_sent_str.replace('Z', '+00:00'))
-            if (now.astimezone() - last_sent.astimezone()).total_seconds() < (interval_minutes * 60):
-                return False 
-        
-        supabase.table("notification_logs").upsert({
-            "type": notif_type, 
-            "last_sent": now.isoformat()
-        }).execute()
-        return True
-    except Exception as e:
-        print(f"[WARN] Throttling check failed: {e}")
-        return True
-
-def send_resend_email(subject, body, notif_type):
-    """Sends email via Resend if enabled in settings and not throttled."""
-    if not settings["notifications"]["email_enabled"]:
+def send_gmail(subject, body, cooldown_key, cooldown_minutes=60):
+    """
+    Send an alert email via Gmail SMTP.
+    cooldown_key   — unique string per alert type (prevents spam)
+    cooldown_minutes — minimum gap between repeat emails of the same type
+    """
+    if not GMAIL_USER or not GMAIL_APP_PASS:
+        print("[WARN] Gmail credentials not set — skipping email.")
         return
 
-    recipient = settings["notifications"]["email"]
+    recipient = settings["notifications"].get("email", "")
     if not recipient:
+        print("[WARN] No recipient email set in settings — skipping email.")
         return
 
-    if not should_send_notification(notif_type):
+    if not settings["notifications"].get("email_enabled", False):
+        print("[INFO] Email notifications disabled — skipping.")
         return
 
+    # Cooldown check
+    now = time.time()
+    last = _last_email_sent.get(cooldown_key, 0)
+    if now - last < cooldown_minutes * 60:
+        print(f"[INFO] Email '{cooldown_key}' skipped — cooldown active.")
+        return
+    _last_email_sent[cooldown_key] = now
+
+    # Build message
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"[Bokashi Alert] {subject}"
+    msg["From"]    = f"Bokashi Monitor <{GMAIL_USER}>"
+    msg["To"]      = recipient
+
+    # Plain text part
+    text_part = MIMEText(body, "plain")
+
+    # Simple HTML part
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;
+                border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+        <div style="background:#16a34a;padding:20px 24px;">
+            <h2 style="color:white;margin:0;font-size:18px;">🌿 Bokashi Composter Alert</h2>
+        </div>
+        <div style="padding:24px;">
+            <p style="font-size:15px;color:#374151;">{body}</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+            <p style="font-size:12px;color:#9ca3af;">
+                Sent by your Bokashi Monitoring System<br>
+                {datetime.datetime.now().strftime("%B %d, %Y at %I:%M %p")}
+            </p>
+        </div>
+    </div>
+    """
+    html_part = MIMEText(html_body, "html")
+
+    msg.attach(text_part)
+    msg.attach(html_part)
+
+    # Send via Gmail SMTP
     try:
-        resend.Emails.send({
-            "from": EMAIL_SENDER,
-            "to": recipient,
-            "subject": f"[Bokashi Alert] {subject}",
-            "text": body
-        })
-        print(f"[INFO] Resend email sent: {notif_type}")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_APP_PASS)
+            server.sendmail(GMAIL_USER, recipient, msg.as_string())
+        print(f"[INFO] Email sent: {subject}")
+    except smtplib.SMTPAuthenticationError:
+        print("[ERROR] Gmail authentication failed — check GMAIL_USER and GMAIL_APP_PASSWORD in .env")
     except Exception as e:
-        print(f"[ERROR] Resend failed: {e}")
+        print(f"[ERROR] Email send failed: {e}")
 
 # ------------------ IN-MEMORY STATE ------------------
 sensor_data = {
@@ -181,6 +207,10 @@ sensor_data = {
     "last_updated": None,
     "sensor_error": None
 }
+
+# Holds "wet" state for N polling cycles after detection
+# (HW-038 DO signal is unstable and pulses rather than staying HIGH)
+_wet_hold_cycles = 0
 
 sensor_status = {
     "dht22":  "unknown",
@@ -380,13 +410,14 @@ def distance_to_bin_capacity_pct(distance_cm):
 
 def read_water_sensor():
     if not GPIO_AVAILABLE:
-        return "wet"
+        return "dry"
     return "wet" if GPIO.input(WATER_PIN) == GPIO.HIGH else "dry"
 
 def read_sensors():
-    previous_water_status = sensor_data.get("water_status")
+    global _wet_hold_cycles
+    previous_status = sensor_data.get("water_status")
 
-    # DHT22
+    # --- DHT22 ---
     temperature, humidity = read_dht22()
     if temperature is None or humidity is None:
         sensor_status["dht22"] = "offline"
@@ -396,7 +427,7 @@ def read_sensors():
         sensor_data["humidity"]    = round(humidity, 1)
         sensor_status["dht22"]     = "online"
 
-    # HC-SR04
+    # --- HC-SR04 ---
     distance     = read_ultrasonic_cm()
     capacity_pct = distance_to_bin_capacity_pct(distance)
     if capacity_pct is None:
@@ -406,35 +437,50 @@ def read_sensors():
         sensor_data["bin_capacity"] = capacity_pct
         sensor_status["hcsr04"]     = "online"
 
-    # HW-038
+    # --- HW-038 ---
+    # The DO signal pulses rather than staying HIGH continuously,
+    # so we hold the "wet" state for 5 polling cycles after any detection.
     try:
-        sensor_data["water_status"] = read_water_sensor()
-        sensor_status["hw038"]      = "online"
+        raw = read_water_sensor()
+        if raw == "wet":
+            _wet_hold_cycles = 5  # reset hold counter on each detection
+
+        if _wet_hold_cycles > 0:
+            sensor_data["water_status"] = "wet"
+            _wet_hold_cycles -= 1
+        else:
+            sensor_data["water_status"] = "dry"
+
+        sensor_status["hw038"] = "online"
     except Exception:
         sensor_status["hw038"] = "offline"
 
-    # Camera
+    # --- Camera ---
     sensor_status["camera"] = "online" if (CAMERA_AVAILABLE and camera is not None) else "offline"
 
-    # Error summary
+    # --- Error summary ---
     offline = [k for k, v in sensor_status.items() if v == "offline"]
     sensor_data["last_updated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sensor_data["sensor_error"] = f"Offline: {', '.join(offline)}" if offline else None
 
-    # --- EMAIL TRIGGERS ---
-    
-    # 1. Water Detection Alert
-    if sensor_data["water_status"] == "wet" and previous_water_status != "wet":
-        msg = "Water detected in the composter system. Check for leaks or drainage issues!"
-        db_add_alert("danger", msg)
-        send_resend_email("Bokashi tea detected", msg, "bokashi_tea")
+    # --- Water detected — alert + email (only on transition to wet) ---
+    if sensor_data["water_status"] == "wet" and previous_status != "wet":
+        msg = (
+            f"Water detected in your Bokashi composter at "
+            f"{datetime.datetime.now().strftime('%B %d, %Y at %I:%M %p')}.\n\n"
+            f"This may indicate Bokashi tea has accumulated. "
+            f"Check the drain tap and drainage tray."
+        )
+        db_add_alert("danger", "Water detected – Bokashi tea may need draining.")
 
-    # 2. Hardware Disconnection Alert
-    if offline:
-        msg = f"Connectivity Alert: The following sensors are offline: {', '.join(offline)}"
-        send_resend_email("Sensor Connection Error", msg, "sensor_offline")
+        # Send email in a separate thread so it doesn't block the sensor loop
+        threading.Thread(
+            target=send_gmail,
+            args=("Water Detected", msg, "water_wet", 60),
+            daemon=True
+        ).start()
 
-    # Threshold alerts (Standard Alerts)
+    # --- Threshold alerts ---
     th = settings.get("thresholds", {})
     if sensor_data["temperature"] is not None:
         if sensor_data["temperature"] > th.get("max_temp", 35):
@@ -728,6 +774,12 @@ def export_logs_csv():
 @login_required
 def test_alert():
     db_add_alert("warning", "This is a test alert from Device Control.")
+    # Also send a test email
+    threading.Thread(
+        target=send_gmail,
+        args=("Test Alert", "This is a test alert from your Bokashi Monitoring System.", "test_alert", 0),
+        daemon=True
+    ).start()
     return redirect(url_for("device_control"))
 
 # ------------------ START ------------------
